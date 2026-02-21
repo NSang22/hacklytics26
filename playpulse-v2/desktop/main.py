@@ -27,6 +27,8 @@ from screen_capture import ScreenCapture
 from webcam_capture import WebcamCapture, EmotionReading
 from watch_ble import WatchBLE, WatchReading as WatchBLEReading
 from chunk_uploader import ChunkUploader
+from face_analyzer import FaceAnalyzer
+from gaze_calibration import GazeCalibrationWindow
 
 import cv2
 
@@ -65,14 +67,17 @@ class AuraDesktopApp:
         self.webcam_cap: Optional[WebcamCapture] = None
         self.watch_ble: Optional[WatchBLE] = None
         self.uploader: Optional[ChunkUploader] = None
+        self.face_analyzer: FaceAnalyzer = FaceAnalyzer()
 
         # Live data
         self._latest_emotion: Optional[Dict] = None
         self._latest_hr: Optional[Dict] = None
         self._log_messages: List[str] = []
         self._chunks_sent = 0
+        self._last_screen_seq: int = -1  # track last displayed screen frame
 
         self._build_ui()
+        self._start_previews()
         self._update_loop()
 
     def run(self) -> None:
@@ -161,12 +166,14 @@ class AuraDesktopApp:
 
         self.fps_var = tk.IntVar(value=3)
         for fps_val in [1, 2, 3]:
-            ttk.Radiobutton(fps_row, text=str(fps_val), variable=self.fps_var, value=fps_val).pack(side="left", padx=4)
+            ttk.Radiobutton(fps_row, text=str(fps_val), variable=self.fps_var, value=fps_val,
+                            command=self._on_fps_change).pack(side="left", padx=4)
         ttk.Label(fps_row, text="Custom:", style="Card.TLabel").pack(side="left", padx=(12, 4))
         self.custom_fps_var = tk.StringVar(value="")
         custom_entry = ttk.Entry(fps_row, textvariable=self.custom_fps_var, width=5)
         custom_entry.pack(side="left")
         custom_entry.bind("<FocusIn>", lambda e: self.fps_var.set(0))
+        custom_entry.bind("<Return>", lambda e: self._on_fps_change())
 
         mon_row = ttk.Frame(screen_card, style="Card.TFrame")
         mon_row.pack(fill="x", pady=4)
@@ -190,7 +197,8 @@ class AuraDesktopApp:
         ttk.Label(res_row, text="Resolution:", style="Card.TLabel").pack(side="left")
         self.resolution_var = tk.StringVar(value="native")
         for label, val in [("Native", "native"), ("1280×720", "1280x720"), ("960×540", "960x540")]:
-            ttk.Radiobutton(res_row, text=label, variable=self.resolution_var, value=val).pack(side="left", padx=4)
+            ttk.Radiobutton(res_row, text=label, variable=self.resolution_var, value=val,
+                            command=self._on_resolution_change).pack(side="left", padx=4)
 
         # Screen capture preview thumbnail
         self.screen_preview_frame = ttk.Frame(screen_card, style="Card.TFrame")
@@ -201,22 +209,17 @@ class AuraDesktopApp:
         self.screen_canvas.create_text(160, 90, text="No capture yet", fill=MUTED, font=("Segoe UI", 10))
         self._screen_photo = None  # Keep reference to prevent GC
 
-        # ── Webcam / Presage Card ───────────────────────────
-        webcam_card = self._make_card(self.scroll_frame, "📷 Webcam + Presage SDK")
+        # ── Webcam / Face Analysis Card ──────────────────
+        webcam_card = self._make_card(self.scroll_frame, "📷 Webcam + Face Analysis")
 
         cam_row = ttk.Frame(webcam_card, style="Card.TFrame")
         cam_row.pack(fill="x", pady=4)
         ttk.Label(cam_row, text="Camera:", style="Card.TLabel").pack(side="left")
         self.camera_combo = ttk.Combobox(cam_row, state="readonly", width=30)
         self.camera_combo.pack(side="left", padx=8)
+        self.camera_combo.bind("<<ComboboxSelected>>", self._on_camera_change)
         ttk.Button(cam_row, text="🔄", command=self._refresh_cameras, width=3).pack(side="left")
         self._refresh_cameras()
-
-        presage_row = ttk.Frame(webcam_card, style="Card.TFrame")
-        presage_row.pack(fill="x", pady=4)
-        ttk.Label(presage_row, text="Presage API Key:", style="Card.TLabel").pack(side="left")
-        self.presage_key_var = tk.StringVar(value=os.getenv("PRESAGE_API_KEY", ""))
-        ttk.Entry(presage_row, textvariable=self.presage_key_var, width=30, show="•").pack(side="left", padx=8)
 
         # Live camera preview
         cam_preview_frame = ttk.Frame(webcam_card, style="Card.TFrame")
@@ -226,6 +229,32 @@ class AuraDesktopApp:
         self.cam_canvas.pack(anchor="w", pady=4)
         self.cam_canvas.create_text(120, 90, text="Camera off", fill=MUTED, font=("Segoe UI", 10))
         self._cam_photo = None  # Keep reference to prevent GC
+
+        # Gaze tracking row
+        gaze_row = ttk.Frame(webcam_card, style="Card.TFrame")
+        gaze_row.pack(fill="x", pady=4)
+        ttk.Button(gaze_row, text="🎯 Calibrate Gaze", command=self._calibrate_gaze).pack(side="left")
+        self.gaze_status = ttk.Label(gaze_row, text="Not calibrated", style="CardMuted.TLabel")
+        self.gaze_status.pack(side="left", padx=12)
+
+        # Gaze indicator (mini-screen with dot)
+        gaze_vis_row = ttk.Frame(webcam_card, style="Card.TFrame")
+        gaze_vis_row.pack(fill="x", pady=4)
+        ttk.Label(gaze_vis_row, text="Gaze:", style="Card.TLabel").pack(side="left")
+        self.gaze_canvas = tk.Canvas(
+            gaze_vis_row, width=160, height=100, bg="#0a0a0a",
+            highlightthickness=1, highlightbackground=SURFACE,
+        )
+        self.gaze_canvas.pack(side="left", padx=8)
+        self.gaze_canvas.create_text(80, 50, text="—", fill=MUTED, font=("Segoe UI", 9))
+        self._gaze_photo = None
+
+        # Head pose labels
+        pose_row = ttk.Frame(webcam_card, style="Card.TFrame")
+        pose_row.pack(fill="x", pady=2)
+        ttk.Label(pose_row, text="Head:", style="Card.TLabel").pack(side="left")
+        self.head_pose_label = ttk.Label(pose_row, text="P:— Y:— R:—", style="CardMuted.TLabel")
+        self.head_pose_label.pack(side="left", padx=8)
 
         self.emotion_display = ttk.Frame(webcam_card, style="Card.TFrame")
         self.emotion_display.pack(fill="x", pady=8)
@@ -324,6 +353,24 @@ class AuraDesktopApp:
         return container
 
     # ═══════════════════════════════════════════════════════
+    # PREVIEW (runs on app launch, independent of recording)
+    # ═══════════════════════════════════════════════════════
+
+    def _start_previews(self) -> None:
+        """Start screen + webcam previews immediately on launch."""
+        # Screen preview
+        fps = self._get_fps()
+        res = self._get_resolution()
+        mon = self.monitor_var.get()
+        self.screen_cap = ScreenCapture(
+            fps=fps, monitor_index=mon, resolution=res,
+        )
+        self.screen_cap.start_preview()
+        self._log(f"Screen preview started (FPS={fps}, monitor={mon})")
+
+        # Webcam preview starts once camera scan finishes (in _apply_cameras)
+
+    # ═══════════════════════════════════════════════════════
     # ACTIONS
     # ═══════════════════════════════════════════════════════
 
@@ -354,6 +401,42 @@ class AuraDesktopApp:
     def _on_monitor_select(self, event) -> None:
         idx = self.monitor_combo.current()
         self.monitor_var.set(idx)
+        if self.screen_cap and self.screen_cap.is_running:
+            self.screen_cap.update_settings(monitor_index=idx)
+            self._log(f"Monitor changed to {idx}")
+
+    def _on_fps_change(self) -> None:
+        """Called when FPS radio button or custom entry changes."""
+        fps = self._get_fps()
+        if self.screen_cap and self.screen_cap.is_running:
+            self.screen_cap.update_settings(fps=fps)
+            self._log(f"FPS changed to {fps}")
+
+    def _on_resolution_change(self) -> None:
+        """Called when resolution radio button changes."""
+        res = self._get_resolution()
+        if self.screen_cap and self.screen_cap.is_running:
+            self.screen_cap.update_settings(resolution=res)
+            self._log(f"Resolution changed to {res or 'native'}")
+
+    def _on_camera_change(self, event=None) -> None:
+        """Called when camera combobox selection changes. Restarts webcam preview."""
+        cam_idx = self.camera_combo.current()
+        if cam_idx < 0:
+            return
+        # Stop existing webcam if running
+        if self.webcam_cap and self.webcam_cap.is_running:
+            self.webcam_cap.stop()
+        # Start new webcam preview
+        self.webcam_cap = WebcamCapture(
+            camera_index=cam_idx,
+            face_analyzer=self.face_analyzer,
+        )
+        self.webcam_cap.start(
+            on_emotion=self._on_emotion_reading,
+            record_video=False,
+        )
+        self._log(f"Camera switched to index {cam_idx}")
 
     def _refresh_cameras(self) -> None:
         """Refresh available camera list in background thread."""
@@ -375,6 +458,8 @@ class AuraDesktopApp:
         self.camera_combo["values"] = labels or ["No cameras found"]
         if labels:
             self.camera_combo.current(0)
+            # Auto-start webcam preview when cameras found
+            self._on_camera_change()
         else:
             self.camera_combo.set("No cameras found")
 
@@ -493,7 +578,7 @@ class AuraDesktopApp:
     # ── Recording Control ───────────────────────────────────
 
     def _start_recording(self) -> None:
-        """Start all data collection streams."""
+        """Upgrade live previews to recording mode + create backend session."""
         if self.recording:
             return
 
@@ -506,27 +591,28 @@ class AuraDesktopApp:
 
         self._log("Starting recording...")
         self.status_label.configure(text="● Starting...", foreground=AMBER)
-
-        # Disable start, enable stop
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
 
-        # Start everything in a thread to avoid blocking UI
-        threading.Thread(target=self._init_recording, daemon=True).start()
+        # Read UI values on main thread
+        chunk_dur = self.chunk_dur_var.get()
+        tester_name = self.tester_var.get()
 
-    def _init_recording(self) -> None:
-        """Initialize all capture modules (runs in thread)."""
+        threading.Thread(
+            target=self._init_recording,
+            args=(chunk_dur, tester_name),
+            daemon=True,
+        ).start()
+
+    def _init_recording(self, chunk_dur: int, tester_name: str) -> None:
+        """Create session and upgrade previews to recording (runs in thread)."""
         try:
-            fps = self._get_fps()
-            resolution = self._get_resolution()
-            chunk_dur = self.chunk_dur_var.get()
-
             # 1. Create uploader and session
             self.uploader = ChunkUploader(
                 backend_url=self.backend_url,
                 project_id=self.project_id,
             )
-            session_id = self.uploader.create_session(tester_name=self.tester_var.get())
+            session_id = self.uploader.create_session(tester_name=tester_name)
             if not session_id:
                 self.root.after(0, lambda: self._recording_error("Failed to create session"))
                 return
@@ -539,29 +625,20 @@ class AuraDesktopApp:
                 on_status_change=self._on_upload_status,
             )
 
-            # 2. Start screen capture
-            self.screen_cap = ScreenCapture(
-                fps=fps,
-                chunk_duration_sec=float(chunk_dur),
-                monitor_index=self.monitor_var.get(),
-                resolution=resolution,
-            )
-            self.screen_cap.start(on_chunk_ready=self._on_screen_chunk)
+            # 2. Upgrade screen preview → recording
+            if self.screen_cap and self.screen_cap.is_running:
+                self.screen_cap.chunk_duration_sec = float(chunk_dur)
+                self.screen_cap.start(on_chunk_ready=self._on_screen_chunk)
+            else:
+                self._log("WARNING: Screen capture not running")
 
-            # 3. Start webcam + Presage
-            cam_idx = self.camera_combo.current()
-            if cam_idx < 0:
-                cam_idx = 0
-            self.webcam_cap = WebcamCapture(
-                camera_index=cam_idx,
-                presage_api_key=self.presage_key_var.get(),
-            )
-            self.webcam_cap.start(
-                on_emotion=self._on_emotion_reading,
-                record_video=True,
-            )
+            # 3. Upgrade webcam preview → recording
+            if self.webcam_cap and self.webcam_cap.is_running:
+                self.webcam_cap.start_recording()
+            else:
+                self._log("WARNING: Webcam not running")
 
-            # 4. Apple Watch BLE — reuse if already connected, otherwise start
+            # 4. BLE — reuse if already connected, otherwise start
             if not (self.watch_ble and self.watch_ble.is_running):
                 self.watch_ble = WatchBLE()
                 device_addr = None
@@ -569,7 +646,6 @@ class AuraDesktopApp:
                     idx = self.watch_combo.current()
                     if idx >= 0 and idx < len(self._ble_devices):
                         device_addr = self._ble_devices[idx].get("address")
-
                 self.watch_ble.start(
                     on_reading=self._on_watch_reading,
                     device_address=device_addr,
@@ -579,13 +655,14 @@ class AuraDesktopApp:
 
             self.recording = True
             self.root.after(0, lambda: self._update_recording_ui(True))
+            fps = self.screen_cap.fps if self.screen_cap else "?"
             self._log(f"Recording started — FPS={fps}, Chunk={chunk_dur}s, Session={session_id}")
 
         except Exception as e:
             self.root.after(0, lambda: self._recording_error(str(e)))
 
     def _stop_recording(self) -> None:
-        """Stop all data collection and finalize the session."""
+        """Stop recording but keep previews alive."""
         if not self.recording:
             return
 
@@ -596,18 +673,18 @@ class AuraDesktopApp:
         threading.Thread(target=self._shutdown_recording, daemon=True).start()
 
     def _shutdown_recording(self) -> None:
-        """Shutdown all modules and finalize (runs in thread)."""
+        """Stop recording on captures (keep previews) and finalize session."""
         try:
-            # Stop screen capture
+            # Downgrade screen capture: recording → preview
             if self.screen_cap:
-                self.screen_cap.stop()
-                self._log("Screen capture stopped")
+                self.screen_cap.stop_recording()
+                self._log("Screen recording stopped (preview continues)")
 
-            # Stop webcam and get video
+            # Stop webcam recording (keep camera + face analysis running)
             face_video_path = None
             if self.webcam_cap:
-                face_video_path, _ = self.webcam_cap.stop()
-                self._log("Webcam stopped")
+                face_video_path = self.webcam_cap.stop_recording()
+                self._log("Webcam recording stopped (preview continues)")
 
             # Collect watch data but keep BLE connected
             watch_data = []
@@ -684,6 +761,7 @@ class AuraDesktopApp:
             self._update_stats()
             self._update_camera_preview()
             self._update_screen_preview()
+            self._update_gaze_display()
             self.chunk_dur_label.configure(text=f"{self.chunk_dur_var.get()}s")
         except Exception:
             pass
@@ -715,9 +793,13 @@ class AuraDesktopApp:
             pass
 
     def _update_screen_preview(self) -> None:
-        """Update the screen capture thumbnail canvas."""
+        """Update the screen capture thumbnail canvas only when a new frame arrives."""
         if not self.screen_cap or not self.screen_cap.is_running:
             return
+        seq = self.screen_cap.frame_seq
+        if seq == self._last_screen_seq:
+            return  # no new frame since last redraw
+        self._last_screen_seq = seq
         frame = self.screen_cap.get_latest_frame()
         if frame is None:
             return
@@ -734,6 +816,14 @@ class AuraDesktopApp:
             x_off = (320 - new_w) // 2
             y_off = (180 - new_h) // 2
             self.screen_canvas.create_image(x_off, y_off, anchor="nw", image=self._screen_photo)
+            # Overlay actual FPS readout
+            actual = self.screen_cap._actual_fps
+            target = self.screen_cap.fps
+            self.screen_canvas.create_text(
+                318, 4, anchor="ne",
+                text=f"{actual:.1f}/{target} FPS",
+                fill="#00ff88", font=("Menlo", 9, "bold"),
+            )
         except Exception:
             pass
 
@@ -764,6 +854,70 @@ class AuraDesktopApp:
         hrv = self._latest_hr.get("hrv_rmssd", 0)
         self.hr_value.configure(text=f"{hr:.0f} BPM")
         self.hrv_value.configure(text=f"{hrv:.1f} ms")
+
+    def _update_gaze_display(self) -> None:
+        """Update gaze indicator and head-pose labels."""
+        if not self._latest_emotion:
+            return
+        # Head pose
+        p = self._latest_emotion.get("head_pitch", 0)
+        y = self._latest_emotion.get("head_yaw", 0)
+        r = self._latest_emotion.get("head_roll", 0)
+        self.head_pose_label.configure(text=f"P:{p:+.0f}°  Y:{y:+.0f}°  R:{r:+.0f}°")
+
+        # Gaze dot on 160x100 mini-screen
+        gx = self._latest_emotion.get("gaze_x", 0.5)
+        gy = self._latest_emotion.get("gaze_y", 0.5)
+        conf = self._latest_emotion.get("gaze_confidence", 0)
+        cal = self.face_analyzer.gaze_calibrator
+
+        self.gaze_canvas.delete("all")
+        # Draw screen border
+        self.gaze_canvas.create_rectangle(2, 2, 158, 98, outline=SURFACE, width=1)
+
+        if conf > 0.5 and cal.calibrated:
+            # Calibrated: gaze_x/y are screen px
+            dot_x = (gx / cal.screen_w) * 156 + 2
+            dot_y = (gy / cal.screen_h) * 96 + 2
+        else:
+            # Uncalibrated: gaze_x/y are iris ratios (0-1)
+            dot_x = gx * 156 + 2
+            dot_y = gy * 96 + 2
+
+        dot_x = max(4, min(156, dot_x))
+        dot_y = max(4, min(96, dot_y))
+        color = GREEN if conf > 0.5 else AMBER
+        self.gaze_canvas.create_oval(
+            dot_x - 5, dot_y - 5, dot_x + 5, dot_y + 5,
+            fill=color, outline="",
+        )
+        # Label
+        status = "calibrated" if cal.calibrated else "raw iris ratio"
+        self.gaze_canvas.create_text(
+            80, 92, text=status, fill=MUTED, font=("Segoe UI", 7),
+        )
+
+    def _calibrate_gaze(self) -> None:
+        """Open the 9-point gaze calibration window."""
+        cam_idx = self.camera_combo.current()
+        if cam_idx < 0:
+            cam_idx = 0
+
+        def _on_done(error_px: float):
+            if error_px >= 0:
+                self.gaze_status.configure(text=f"Calibrated ({error_px:.0f}px error)")
+                self._log(f"Gaze calibrated — mean error: {error_px:.1f}px")
+            else:
+                self.gaze_status.configure(text="Calibration failed")
+                self._log("Gaze calibration failed")
+
+        GazeCalibrationWindow(
+            master=self.root,
+            face_analyzer=self.face_analyzer,
+            camera_index=cam_idx,
+            on_complete=_on_done,
+        )
+        self._log("Gaze calibration started")
 
     def _update_stats(self) -> None:
         """Update upload stats."""
@@ -813,11 +967,18 @@ class AuraDesktopApp:
             pass
 
     def _on_close(self) -> None:
-        """Handle window close."""
+        """Handle window close — stop everything."""
         if self.recording:
             if not messagebox.askyesno("Recording Active", "Recording is active. Stop and exit?"):
                 return
             self._shutdown_recording()
+        # Stop previews
+        if self.screen_cap:
+            self.screen_cap.stop()
+        if self.webcam_cap:
+            self.webcam_cap.stop()
+        if self.face_analyzer:
+            self.face_analyzer.close()
         self.root.destroy()
 
 

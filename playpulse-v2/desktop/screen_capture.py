@@ -1,14 +1,15 @@
 """
-Screen Capture Module — captures the screen at configurable FPS using mss,
-encodes frames into video chunks using OpenCV, and yields .webm blobs.
+Screen Capture Module — captures the screen at configurable FPS using mss.
 
-Supported FPS: 1, 2, 3, or any custom value up to 30.
-Chunks are 10-second segments by default.
+Supports two modes:
+  • Preview-only: grabs frames for UI thumbnail (no disk writes)
+  • Recording: additionally writes .mp4 chunk files and dispatches them
+
+Settings (FPS, monitor, resolution) can be changed live via update_settings().
 """
 
 from __future__ import annotations
 
-import io
 import os
 import time
 import tempfile
@@ -21,7 +22,7 @@ import mss
 
 
 class ScreenCapture:
-    """Captures the screen at a given FPS and yields chunked video blobs."""
+    """Captures the screen at a given FPS. Supports preview-only and recording modes."""
 
     def __init__(
         self,
@@ -35,125 +36,194 @@ class ScreenCapture:
         self.monitor_index = monitor_index
         self.resolution = resolution  # (width, height) or None for native
         self._running = False
+        self._recording = False
         self._thread: Optional[threading.Thread] = None
         self._chunk_index = 0
         self._on_chunk_ready: Optional[Callable[[bytes, int], None]] = None
-        self._sct: Optional[mss.mss] = None
         self._lock = threading.Lock()
         self._latest_frame: Optional[np.ndarray] = None
         self._frame_lock = threading.Lock()
+        self._frame_seq: int = 0
+        self._actual_fps: float = 0.0
+        self._last_frame_time: float = 0.0
 
-    def start(self, on_chunk_ready: Callable[[bytes, int], None]) -> None:
-        """Start screen capture in a background thread.
+    # ── Public API ──────────────────────────────────────────
 
-        Args:
-            on_chunk_ready: Callback ``(video_bytes, chunk_index)`` called
-                each time a chunk is complete.
-        """
+    def start_preview(self) -> None:
+        """Start the capture loop in preview-only mode (no chunk writing)."""
         if self._running:
             return
-        self._on_chunk_ready = on_chunk_ready
         self._running = True
-        self._chunk_index = 0
+        self._recording = False
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
 
+    def start(self, on_chunk_ready: Callable[[bytes, int], None]) -> None:
+        """Start screen capture with chunk recording.
+
+        If already running in preview, upgrades to recording mode.
+        """
+        self._on_chunk_ready = on_chunk_ready
+        self._chunk_index = 0
+        if self._running:
+            self._recording = True
+            return
+        self._running = True
+        self._recording = True
+        self._thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self._thread.start()
+
+    def stop_recording(self) -> None:
+        """Stop chunk recording but keep preview running."""
+        self._recording = False
+
     def stop(self) -> None:
-        """Stop the capture loop."""
+        """Stop the capture loop entirely (preview + recording)."""
         self._running = False
+        self._recording = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5.0)
         self._thread = None
+
+    def update_settings(
+        self,
+        fps: Optional[int] = None,
+        monitor_index: Optional[int] = None,
+        resolution=None,
+    ) -> None:
+        """Update capture settings live. Restarts the loop if running."""
+        changed = False
+        if fps is not None and fps != self.fps:
+            self.fps = max(1, min(fps, 30))
+            changed = True
+        if monitor_index is not None and monitor_index != self.monitor_index:
+            self.monitor_index = monitor_index
+            changed = True
+        if resolution is not None and resolution != self.resolution:
+            self.resolution = resolution
+            changed = True
+
+        if changed and self._running:
+            was_recording = self._recording
+            cb = self._on_chunk_ready
+            self.stop()
+            time.sleep(0.1)
+            if was_recording and cb:
+                self.start(on_chunk_ready=cb)
+            else:
+                self.start_preview()
 
     @property
     def is_running(self) -> bool:
         return self._running
 
+    @property
+    def is_recording(self) -> bool:
+        return self._recording
+
     # ── Internal ────────────────────────────────────────────
 
     def _capture_loop(self) -> None:
-        """Main capture loop — grabs frames and writes .webm chunks."""
+        """Main loop — grabs frames at target FPS; writes chunks when recording."""
         with mss.mss() as sct:
             monitor = sct.monitors[self.monitor_index]
 
-            # Determine output resolution
             if self.resolution:
                 out_w, out_h = self.resolution
             else:
                 out_w = monitor["width"]
                 out_h = monitor["height"]
 
-            # Ensure even dimensions (required by many codecs)
             out_w = out_w if out_w % 2 == 0 else out_w - 1
             out_h = out_h if out_h % 2 == 0 else out_h - 1
 
-            frame_interval = 1.0 / self.fps
-            frames_per_chunk = int(self.chunk_duration_sec * self.fps)
-
             while self._running:
-                # Create temp file for this chunk
-                tmp = tempfile.NamedTemporaryFile(
-                    suffix=".mp4", delete=False, prefix="aura_chunk_"
-                )
-                tmp_path = tmp.name
-                tmp.close()
+                frame_interval = 1.0 / self.fps
+                frames_per_chunk = int(self.chunk_duration_sec * self.fps)
 
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                writer = cv2.VideoWriter(tmp_path, fourcc, self.fps, (out_w, out_h))
+                # Setup chunk writer only when recording
+                tmp_path = None
+                writer = None
+                if self._recording:
+                    tmp = tempfile.NamedTemporaryFile(
+                        suffix=".mp4", delete=False, prefix="aura_chunk_"
+                    )
+                    tmp_path = tmp.name
+                    tmp.close()
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    writer = cv2.VideoWriter(tmp_path, fourcc, self.fps, (out_w, out_h))
 
                 frame_count = 0
-                chunk_start = time.monotonic()
+                next_capture = time.monotonic()
 
                 while self._running and frame_count < frames_per_chunk:
-                    t0 = time.monotonic()
+                    next_capture += frame_interval
 
-                    # Grab screen
                     raw = sct.grab(monitor)
-                    img = np.array(raw)  # BGRA
+                    img = np.array(raw)
                     img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-                    # Resize if needed
                     h, w = img.shape[:2]
                     if (w, h) != (out_w, out_h):
                         img = cv2.resize(img, (out_w, out_h), interpolation=cv2.INTER_AREA)
 
-                    writer.write(img)
+                    if self._recording and writer:
+                        writer.write(img)
+
                     frame_count += 1
 
-                    # Store latest frame for UI preview
+                    # Measure actual FPS
+                    now = time.monotonic()
+                    if self._last_frame_time > 0:
+                        dt = now - self._last_frame_time
+                        if dt > 0:
+                            self._actual_fps = 1.0 / dt
+                    self._last_frame_time = now
+
                     with self._frame_lock:
                         self._latest_frame = img.copy()
+                        self._frame_seq += 1
 
-                    # Sleep to maintain target FPS
-                    elapsed = time.monotonic() - t0
-                    sleep_time = frame_interval - elapsed
+                    sleep_time = next_capture - time.monotonic()
                     if sleep_time > 0:
                         time.sleep(sleep_time)
+                    else:
+                        next_capture = time.monotonic()
 
-                writer.release()
+                    # In preview-only mode, loop forever (no chunk boundary)
+                    if not self._recording:
+                        frame_count = 0
 
-                # Read the chunk bytes and dispatch
-                if frame_count > 0 and self._on_chunk_ready:
+                # Finish chunk
+                if writer:
+                    writer.release()
+                if tmp_path and self._recording and self._on_chunk_ready:
                     try:
                         with open(tmp_path, "rb") as f:
                             chunk_bytes = f.read()
                         self._on_chunk_ready(chunk_bytes, self._chunk_index)
                     except Exception as e:
                         print(f"[ScreenCapture] Error reading chunk: {e}")
-
-                # Cleanup temp file
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+                if tmp_path:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
 
                 with self._lock:
                     self._chunk_index += 1
+
+    # ── Accessors ───────────────────────────────────────────
 
     def get_latest_frame(self) -> Optional[np.ndarray]:
         """Get the most recent captured frame (BGR) for UI preview."""
         with self._frame_lock:
             return self._latest_frame.copy() if self._latest_frame is not None else None
+
+    @property
+    def frame_seq(self) -> int:
+        """Monotonically increasing frame counter."""
+        return self._frame_seq
 
     def get_monitors(self) -> list:
         """Return list of available monitors for selection UI."""

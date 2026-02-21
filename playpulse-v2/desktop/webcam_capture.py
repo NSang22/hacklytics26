@@ -1,9 +1,9 @@
 """
 Webcam Capture Module — captures webcam video using OpenCV and integrates
-with the Presage SDK for real-time facial emotion detection.
+with FaceAnalyzer (MediaPipe Face Mesh) for real-time facial expression,
+Action Unit, and gaze tracking.
 
-The Presage SDK runs on the live webcam feed and produces 10 Hz emotion
-signals (frustration, confusion, delight, boredom, surprise).
+Replaces the former Presage SDK stub with on-device MediaPipe analysis.
 """
 
 from __future__ import annotations
@@ -18,18 +18,25 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-# Optional: Presage SDK import
+# FaceAnalyzer (local MediaPipe-based)
 try:
-    import presage  # type: ignore
-    HAS_PRESAGE = True
+    from face_analyzer import FaceAnalyzer, FaceAnalysis
+    HAS_FACE_ANALYZER = True
 except ImportError:
-    HAS_PRESAGE = False
+    HAS_FACE_ANALYZER = False
+    print("[Webcam] WARNING: face_analyzer not available")
 
 
 class EmotionReading:
-    """Single emotion reading from Presage."""
+    """Single reading from face analysis: emotions + AUs + gaze + head pose."""
 
-    __slots__ = ("timestamp_sec", "frustration", "confusion", "delight", "boredom", "surprise", "engagement")
+    __slots__ = (
+        "timestamp_sec", "frustration", "confusion", "delight",
+        "boredom", "surprise", "engagement",
+        "gaze_x", "gaze_y", "gaze_confidence",
+        "head_pitch", "head_yaw", "head_roll",
+        "action_units", "face_detected",
+    )
 
     def __init__(
         self,
@@ -40,6 +47,14 @@ class EmotionReading:
         boredom: float = 0.0,
         surprise: float = 0.0,
         engagement: float = 0.0,
+        gaze_x: float = 0.5,
+        gaze_y: float = 0.5,
+        gaze_confidence: float = 0.0,
+        head_pitch: float = 0.0,
+        head_yaw: float = 0.0,
+        head_roll: float = 0.0,
+        action_units: Optional[Dict] = None,
+        face_detected: bool = False,
     ):
         self.timestamp_sec = timestamp_sec
         self.frustration = frustration
@@ -48,8 +63,16 @@ class EmotionReading:
         self.boredom = boredom
         self.surprise = surprise
         self.engagement = engagement
+        self.gaze_x = gaze_x
+        self.gaze_y = gaze_y
+        self.gaze_confidence = gaze_confidence
+        self.head_pitch = head_pitch
+        self.head_yaw = head_yaw
+        self.head_roll = head_roll
+        self.action_units = action_units or {}
+        self.face_detected = face_detected
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> Dict:
         return {
             "timestamp_sec": self.timestamp_sec,
             "frustration": self.frustration,
@@ -58,6 +81,14 @@ class EmotionReading:
             "boredom": self.boredom,
             "surprise": self.surprise,
             "engagement": self.engagement,
+            "gaze_x": self.gaze_x,
+            "gaze_y": self.gaze_y,
+            "gaze_confidence": self.gaze_confidence,
+            "head_pitch": self.head_pitch,
+            "head_yaw": self.head_yaw,
+            "head_roll": self.head_roll,
+            "action_units": dict(self.action_units) if self.action_units else {},
+            "face_detected": self.face_detected,
         }
 
 
@@ -69,10 +100,12 @@ class WebcamCapture:
         camera_index: int = 0,
         presage_api_key: str = "",
         emotion_hz: int = 10,
+        face_analyzer: Optional[Any] = None,
     ):
         self.camera_index = camera_index
         self.presage_api_key = presage_api_key or os.getenv("PRESAGE_API_KEY", "")
         self.emotion_hz = emotion_hz
+        self.face_analyzer = face_analyzer  # FaceAnalyzer instance (shared)
 
         self._running = False
         self._capture_thread: Optional[threading.Thread] = None
@@ -94,15 +127,15 @@ class WebcamCapture:
         self._writer: Optional[cv2.VideoWriter] = None
         self._video_path: Optional[str] = None
 
-        # Presage SDK handle
-        self._presage_client = None
+        # Face Analyzer (replaces Presage)
+        self._owns_analyzer = False  # True if we created the analyzer
 
     def start(
         self,
         on_emotion: Optional[Callable[[EmotionReading], None]] = None,
-        record_video: bool = True,
+        record_video: bool = False,
     ) -> Optional[str]:
-        """Start webcam capture and Presage emotion detection.
+        """Start webcam capture and face analysis.
 
         Args:
             on_emotion: Callback fired at ~10 Hz with emotion readings.
@@ -114,7 +147,8 @@ class WebcamCapture:
         if self._running:
             return self._video_path
 
-        self._on_emotion = on_emotion
+        if on_emotion is not None:
+            self._on_emotion = on_emotion
         self._start_time = time.monotonic()
         self._emotion_buffer.clear()
 
@@ -125,41 +159,70 @@ class WebcamCapture:
             return None
 
         # Get camera properties
-        w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        cam_fps = self._cap.get(cv2.CAP_PROP_FPS) or 30
+        self._cam_w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self._cam_h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self._cam_fps = self._cap.get(cv2.CAP_PROP_FPS) or 30
 
         # Setup video recording
         if record_video:
-            tmp = tempfile.NamedTemporaryFile(
-                suffix=".mp4", delete=False, prefix="aura_webcam_"
-            )
-            self._video_path = tmp.name
-            tmp.close()
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            self._writer = cv2.VideoWriter(self._video_path, fourcc, cam_fps, (w, h))
-            self._recording = True
+            self._begin_video_writer()
 
-        # Initialize Presage SDK if available
-        if HAS_PRESAGE and self.presage_api_key:
-            try:
-                self._presage_client = presage.Client(api_key=self.presage_api_key)
-                print("[Webcam] Presage SDK initialized")
-            except Exception as e:
-                print(f"[Webcam] Presage init failed: {e}")
-                self._presage_client = None
+        # Initialize Face Analyzer if not provided externally
+        if self.face_analyzer is None and HAS_FACE_ANALYZER:
+            self.face_analyzer = FaceAnalyzer()
+            self._owns_analyzer = True
+            print("[Webcam] FaceAnalyzer created internally")
+        elif self.face_analyzer is not None:
+            print("[Webcam] Using shared FaceAnalyzer")
 
         self._running = True
 
-        # Start capture thread
         self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._capture_thread.start()
 
-        # Start emotion analysis thread
         self._emotion_thread = threading.Thread(target=self._emotion_loop, daemon=True)
         self._emotion_thread.start()
 
         return self._video_path
+
+    def start_recording(self) -> Optional[str]:
+        """Begin recording video on an already-running camera.
+
+        Returns:
+            Path to the video file, or None if camera not running.
+        """
+        if not self._running or not self._cap:
+            return None
+        if self._recording:
+            return self._video_path
+        self._begin_video_writer()
+        return self._video_path
+
+    def stop_recording(self) -> Optional[str]:
+        """Stop recording video but keep the camera and face analysis running.
+
+        Returns:
+            Path to the recorded video file.
+        """
+        self._recording = False
+        if self._writer:
+            self._writer.release()
+            self._writer = None
+        return self._video_path
+
+    def _begin_video_writer(self) -> None:
+        """Create a new video writer for recording."""
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".mp4", delete=False, prefix="aura_webcam_"
+        )
+        self._video_path = tmp.name
+        tmp.close()
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        w = getattr(self, "_cam_w", 640)
+        h = getattr(self, "_cam_h", 480)
+        fps = getattr(self, "_cam_fps", 30)
+        self._writer = cv2.VideoWriter(self._video_path, fourcc, fps, (w, h))
+        self._recording = True
 
     def stop(self) -> Tuple[Optional[str], List[Dict]]:
         """Stop capture and return (video_path, emotion_data).
@@ -245,61 +308,33 @@ class WebcamCapture:
                 time.sleep(sleep_time)
 
     def _analyze_frame(self, frame: np.ndarray, timestamp_sec: float) -> EmotionReading:
-        """Run Presage SDK on a single frame, or generate stub data."""
-        # Try Presage SDK first
-        if self._presage_client is not None:
+        """Run FaceAnalyzer (MediaPipe) on a single frame."""
+        if self.face_analyzer is not None:
             try:
-                # Presage SDK expects RGB image
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                result = self._presage_client.analyze_frame(rgb)
+                fa = self.face_analyzer.analyze(frame, timestamp_sec)
+                emo = fa.emotions
                 return EmotionReading(
                     timestamp_sec=timestamp_sec,
-                    frustration=result.get("frustration", 0.0),
-                    confusion=result.get("confusion", 0.0),
-                    delight=result.get("delight", 0.0),
-                    boredom=result.get("boredom", 0.0),
-                    surprise=result.get("surprise", 0.0),
-                    engagement=result.get("engagement", 0.0),
+                    frustration=emo.get("frustration", 0.0),
+                    confusion=emo.get("confusion", 0.0),
+                    delight=emo.get("delight", 0.0),
+                    boredom=emo.get("boredom", 0.0),
+                    surprise=emo.get("surprise", 0.0),
+                    engagement=emo.get("engagement", 0.0),
+                    gaze_x=fa.gaze_x,
+                    gaze_y=fa.gaze_y,
+                    gaze_confidence=fa.gaze_confidence,
+                    head_pitch=fa.head_pitch,
+                    head_yaw=fa.head_yaw,
+                    head_roll=fa.head_roll,
+                    action_units=fa.action_units,
+                    face_detected=fa.face_detected,
                 )
             except Exception as e:
-                pass  # Fall through to stub
+                print(f"[Webcam] FaceAnalyzer error: {e}")
 
-        # Stub: basic face detection heuristic
-        return self._stub_emotion(frame, timestamp_sec)
-
-    def _stub_emotion(self, frame: np.ndarray, timestamp_sec: float) -> EmotionReading:
-        """Generate plausible emotion data based on simple heuristics.
-
-        Uses face detection to set engagement, and adds time-based variance.
-        """
-        import random
-
-        # Simple face presence check via Haar cascade
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
-        faces = face_cascade.detectMultiScale(gray, 1.1, 4, minSize=(80, 80))
-        face_detected = len(faces) > 0
-
-        # Base values with time-varying noise
-        t = timestamp_sec
-        engagement = 0.7 if face_detected else 0.2
-        base_frust = 0.15 + 0.1 * np.sin(t * 0.3)
-        base_conf = 0.1 + 0.08 * np.sin(t * 0.2 + 1)
-        base_del = 0.4 + 0.15 * np.sin(t * 0.15 + 2)
-        base_bore = 0.08 + 0.05 * np.sin(t * 0.1 + 3)
-        base_surp = 0.05 + 0.1 * np.sin(t * 0.4 + 4)
-
-        return EmotionReading(
-            timestamp_sec=timestamp_sec,
-            frustration=max(0.0, min(1.0, base_frust + random.gauss(0, 0.03))),
-            confusion=max(0.0, min(1.0, base_conf + random.gauss(0, 0.02))),
-            delight=max(0.0, min(1.0, base_del + random.gauss(0, 0.04))),
-            boredom=max(0.0, min(1.0, base_bore + random.gauss(0, 0.02))),
-            surprise=max(0.0, min(1.0, base_surp + random.gauss(0, 0.03))),
-            engagement=max(0.0, min(1.0, engagement + random.gauss(0, 0.05))),
-        )
+        # Fallback: no-face empty reading
+        return EmotionReading(timestamp_sec=timestamp_sec)
 
     @staticmethod
     def list_cameras(max_check: int = 2) -> List[Dict]:
