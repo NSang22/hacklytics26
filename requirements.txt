@@ -8,3 +8,7 @@ httpx>=0.28.0
 python-dotenv>=1.0.0
 plotly>=5.24.0
 sphinx-ai-cli>=1.0.6
+snowflake-cli-labs
+opencv-python
+pandas
+numpy
