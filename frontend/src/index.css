@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --font-eb-garamond: "EB Garamond", serif;
+}
+
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/EBGaramond-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/EBGaramond-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/EBGaramond-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/EBGaramond-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/EBGaramond-ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/EBGaramond-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/EBGaramond-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+.shimmer {
+  animation: shimmer 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
