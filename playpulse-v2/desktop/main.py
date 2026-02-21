@@ -248,7 +248,11 @@ class AuraDesktopApp:
         ttk.Label(watch_row, text="Device:", style="Card.TLabel").pack(side="left")
         self.watch_combo = ttk.Combobox(watch_row, state="readonly", width=30)
         self.watch_combo.pack(side="left", padx=8)
-        ttk.Button(watch_row, text="🔍 Scan", command=self._scan_ble).pack(side="left")
+        ttk.Button(watch_row, text="🔍 Scan", command=self._scan_ble).pack(side="left", padx=(4, 0))
+        self.ble_connect_btn = ttk.Button(watch_row, text="▶ Connect", command=self._connect_ble)
+        self.ble_connect_btn.pack(side="left", padx=(4, 0))
+        self.ble_disconnect_btn = ttk.Button(watch_row, text="⏹ Disconnect", command=self._disconnect_ble, state="disabled")
+        self.ble_disconnect_btn.pack(side="left", padx=(4, 0))
 
         hr_row = ttk.Frame(watch_card, style="Card.TFrame")
         hr_row.pack(fill="x", pady=8)
@@ -373,6 +377,58 @@ class AuraDesktopApp:
             self.camera_combo.current(0)
         else:
             self.camera_combo.set("No cameras found")
+
+    def _connect_ble(self) -> None:
+        """Connect to the selected BLE device (independent of recording)."""
+        if self.watch_ble and self.watch_ble.is_running:
+            self._log("BLE already connected")
+            return
+
+        device_addr = None
+        if hasattr(self, "_ble_devices") and self._ble_devices:
+            idx = self.watch_combo.current()
+            if idx >= 0 and idx < len(self._ble_devices):
+                device_addr = self._ble_devices[idx].get("address")
+
+        if device_addr is None:
+            self._log("No BLE device selected — will scan automatically")
+
+        self.watch_ble = WatchBLE()
+        self.watch_ble.start(
+            on_reading=self._on_watch_reading,
+            device_address=device_addr,
+        )
+        self.watch_status.configure(text="Connecting...")
+        self.ble_connect_btn.configure(state="disabled")
+        self.ble_disconnect_btn.configure(state="normal")
+        self._log(f"BLE connecting to {device_addr or 'auto-scan'}...")
+
+        # Poll connection status
+        def _check_connected():
+            if self.watch_ble and self.watch_ble.connected:
+                name = self.watch_ble.device_name or "HR Device"
+                self.watch_status.configure(text=f"Connected: {name}")
+                self._log(f"BLE connected to {name}")
+            elif self.watch_ble and self.watch_ble.is_running:
+                self.root.after(500, _check_connected)
+            else:
+                self.watch_status.configure(text="Connection failed")
+                self.ble_connect_btn.configure(state="normal")
+                self.ble_disconnect_btn.configure(state="disabled")
+        self.root.after(1000, _check_connected)
+
+    def _disconnect_ble(self) -> None:
+        """Disconnect from BLE device."""
+        if self.watch_ble:
+            self.watch_ble.stop()
+            self.watch_ble = None
+        self.watch_status.configure(text="Disconnected")
+        self.hr_value.configure(text="— BPM")
+        self.hrv_value.configure(text="— ms")
+        self.ble_connect_btn.configure(state="normal")
+        self.ble_disconnect_btn.configure(state="disabled")
+        self._latest_hr = None
+        self._log("BLE disconnected")
 
     def _scan_ble(self) -> None:
         """Scan for BLE devices."""
@@ -505,18 +561,21 @@ class AuraDesktopApp:
                 record_video=True,
             )
 
-            # 4. Start Apple Watch BLE
-            self.watch_ble = WatchBLE()
-            device_addr = None
-            if hasattr(self, "_ble_devices") and self._ble_devices:
-                idx = self.watch_combo.current()
-                if idx >= 0 and idx < len(self._ble_devices):
-                    device_addr = self._ble_devices[idx].get("address")
+            # 4. Apple Watch BLE — reuse if already connected, otherwise start
+            if not (self.watch_ble and self.watch_ble.is_running):
+                self.watch_ble = WatchBLE()
+                device_addr = None
+                if hasattr(self, "_ble_devices") and self._ble_devices:
+                    idx = self.watch_combo.current()
+                    if idx >= 0 and idx < len(self._ble_devices):
+                        device_addr = self._ble_devices[idx].get("address")
 
-            self.watch_ble.start(
-                on_reading=self._on_watch_reading,
-                device_address=device_addr,
-            )
+                self.watch_ble.start(
+                    on_reading=self._on_watch_reading,
+                    device_address=device_addr,
+                )
+            else:
+                self._log("Reusing existing BLE connection")
 
             self.recording = True
             self.root.after(0, lambda: self._update_recording_ui(True))
@@ -550,10 +609,11 @@ class AuraDesktopApp:
                 face_video_path, _ = self.webcam_cap.stop()
                 self._log("Webcam stopped")
 
-            # Stop watch
+            # Collect watch data but keep BLE connected
+            watch_data = []
             if self.watch_ble:
-                watch_data = self.watch_ble.stop()
-                self._log(f"Watch stopped — {len(watch_data)} readings")
+                watch_data = self.watch_ble.get_all_readings()
+                self._log(f"Watch data collected — {len(watch_data)} readings (BLE stays connected)")
 
             # Upload face video
             if face_video_path and self.uploader:

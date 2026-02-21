@@ -99,7 +99,7 @@ class WatchBLE:
         """Scan for nearby BLE heart rate devices.
 
         Returns list of {address, name, rssi, has_hr_service} dicts.
-        Finds devices both by HR service UUID and by name keywords.
+        Uses bleak 2.x API with return_adv=True.
         """
         if not HAS_BLEAK:
             print("[WatchBLE] bleak not installed — returning empty scan")
@@ -108,66 +108,58 @@ class WatchBLE:
         devices = []
         seen_addresses = set()
 
-        # Method 1: Scan specifically for HR service advertisers
+        # Single broad scan with advertisement data
         try:
-            hr_devices = await BleakScanner.discover(
-                timeout=timeout,
-                service_uuids=[HR_SERVICE_UUID],
-            )
-            for d in hr_devices:
-                if d.address not in seen_addresses:
-                    seen_addresses.add(d.address)
+            print("[WatchBLE] Scanning for BLE devices...")
+            discovered = await BleakScanner.discover(timeout=timeout, return_adv=True)
+
+            for addr, (dev, adv) in discovered.items():
+                name = dev.name or (adv.local_name if adv else None) or ""
+                rssi = adv.rssi if adv else -100
+                service_uuids = [s.lower() for s in (adv.service_uuids if adv else [])]
+                has_hr = any("180d" in s for s in service_uuids)
+
+                if has_hr:
+                    seen_addresses.add(addr)
                     devices.append({
-                        "address": d.address,
-                        "name": d.name or "Unknown HR Device",
-                        "rssi": d.rssi,
+                        "address": addr,
+                        "name": name or "HR Device",
+                        "rssi": rssi,
                         "has_hr_service": True,
                     })
-                    print(f"[WatchBLE] Found HR device: {d.name} ({d.address}) RSSI={d.rssi}")
-        except Exception as e:
-            print(f"[WatchBLE] HR-service scan error: {e}")
+                    print(f"[WatchBLE] ❤️  HR device: {name} ({addr}) RSSI={rssi}")
 
-        # Method 2: General scan for named devices
-        try:
-            all_devices = await BleakScanner.discover(timeout=timeout)
+            # Also check by name keywords for devices not advertising HR service
             hr_keywords = ["watch", "heart", "polar", "garmin", "hr", "apple",
                            "heartcast", "wahoo", "fitbit", "coros", "suunto",
-                           "chest", "strap", "band", "pulse"]
-            for d in all_devices:
-                if d.address in seen_addresses:
+                           "chest", "strap", "band", "pulse", "iphone"]
+            for addr, (dev, adv) in discovered.items():
+                if addr in seen_addresses:
                     continue
-                name = d.name or ""
-                if any(kw in name.lower() for kw in hr_keywords):
-                    seen_addresses.add(d.address)
+                name = dev.name or (adv.local_name if adv else None) or ""
+                rssi = adv.rssi if adv else -100
+                if name and any(kw in name.lower() for kw in hr_keywords):
+                    seen_addresses.add(addr)
                     devices.append({
-                        "address": d.address,
-                        "name": name or "Unknown",
-                        "rssi": d.rssi,
+                        "address": addr,
+                        "name": name,
+                        "rssi": rssi,
                         "has_hr_service": False,
                     })
-                    print(f"[WatchBLE] Found by name: {name} ({d.address}) RSSI={d.rssi}")
+                    print(f"[WatchBLE] 📡 By name: {name} ({addr}) RSSI={rssi}")
+
         except Exception as e:
-            print(f"[WatchBLE] Name-scan error: {e}")
+            print(f"[WatchBLE] Scan error: {e}")
+            import traceback
+            traceback.print_exc()
 
         # Sort: HR service devices first, then by signal strength
         devices.sort(key=lambda x: (not x.get("has_hr_service", False), -(x.get("rssi") or -100)))
 
         if not devices:
-            print("[WatchBLE] No HR devices found. Listing ALL nearby BLE devices for debugging:")
-            try:
-                all_devs = await BleakScanner.discover(timeout=5.0)
-                for d in all_devs:
-                    if d.name:
-                        print(f"  BLE: {d.name} ({d.address}) RSSI={d.rssi}")
-                        devices.append({
-                            "address": d.address,
-                            "name": f"[?] {d.name}",
-                            "rssi": d.rssi,
-                            "has_hr_service": False,
-                        })
-            except Exception:
-                pass
+            print("[WatchBLE] No HR devices found.")
 
+        print(f"[WatchBLE] Scan complete: {len(devices)} device(s) found")
         return devices
 
     def start(
@@ -242,33 +234,40 @@ class WatchBLE:
         address = self._device_address
 
         if not address:
-            # Try to find any device advertising the HR service
-            print(f"[WatchBLE] Scanning for HR service devices...")
+            # Scan with advertisement data (bleak 2.x API)
+            print("[WatchBLE] Scanning for HR service devices...")
             try:
-                devices = await BleakScanner.discover(
+                discovered = await BleakScanner.discover(
                     timeout=15.0,
-                    service_uuids=[HR_SERVICE_UUID],
+                    return_adv=True,
                 )
-                if devices:
-                    d = devices[0]
-                    address = d.address
-                    self.device_name = d.name or "HR Device"
-                    print(f"[WatchBLE] Found HR device: {d.name} ({d.address})")
+                # Find devices advertising HR service
+                for addr, (dev, adv) in discovered.items():
+                    service_uuids = [s.lower() for s in (adv.service_uuids if adv else [])]
+                    if any("180d" in s for s in service_uuids):
+                        address = addr
+                        self.device_name = dev.name or (adv.local_name if adv else None) or "HR Device"
+                        print(f"[WatchBLE] Found HR device: {self.device_name} ({addr})")
+                        break
             except Exception as e:
                 print(f"[WatchBLE] Service-based scan error: {e}")
 
         if not address:
             # Fallback: scan by name
-            print(f"[WatchBLE] No HR service found, scanning by name...")
-            devices = await BleakScanner.discover(timeout=10.0)
-            hr_keywords = ["watch", "heart", "polar", "garmin", "hr", "apple",
-                           "heartcast", "wahoo", "fitbit", "coros", "band", "pulse"]
-            for d in devices:
-                if d.name and any(kw in d.name.lower() for kw in hr_keywords):
-                    address = d.address
-                    self.device_name = d.name
-                    print(f"[WatchBLE] Found by name: {d.name} ({d.address})")
-                    break
+            print("[WatchBLE] No HR service found, scanning by name...")
+            try:
+                discovered = await BleakScanner.discover(timeout=10.0, return_adv=True)
+                hr_keywords = ["watch", "heart", "polar", "garmin", "hr", "apple",
+                               "heartcast", "wahoo", "fitbit", "coros", "band", "pulse", "iphone"]
+                for addr, (dev, adv) in discovered.items():
+                    name = dev.name or (adv.local_name if adv else None) or ""
+                    if name and any(kw in name.lower() for kw in hr_keywords):
+                        address = addr
+                        self.device_name = name
+                        print(f"[WatchBLE] Found by name: {name} ({addr})")
+                        break
+            except Exception as e:
+                print(f"[WatchBLE] Name-scan error: {e}")
 
         if not address:
             print(f"[WatchBLE] No HR device found, starting simulation")
