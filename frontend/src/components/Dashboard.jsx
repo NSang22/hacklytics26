@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 
 // ─── Fake Data ────────────────────────────────────────────────────────────────
 
@@ -356,7 +355,6 @@ function VerdictCard({ verdict }) {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('session')
   const [mounted, setMounted] = useState(false)
 
@@ -373,28 +371,15 @@ export default function Dashboard() {
         backgroundSize: '40px 40px'
       }} />
 
-      {/* Top bar */}
-      <header className="sticky top-0 z-50 border-b border-white/5 px-6 py-3 flex items-center justify-between backdrop-blur-md" style={{ background: 'rgba(8,10,15,0.85)' }}>
-        <div className="flex items-center gap-6">
-          <button onClick={() => navigate('/')} className="flex items-center gap-2 hover:opacity-70 transition-opacity">
-            <div className="w-6 h-6 rounded-md bg-white/10 flex items-center justify-center">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M8 2L4 6L8 10" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <span className="text-white/40 text-xs tracking-widest uppercase">Back</span>
-          </button>
-
-          <div className="h-4 w-px bg-white/10" />
-
+      {/* Status bar */}
+      <div className="px-6 py-3 flex items-center justify-between border-b border-white/5">
+        <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-xs text-white/50 tracking-widest uppercase">Session Active</span>
+            <span className="text-xs text-white/50 tracking-widest uppercase">Demo Session</span>
           </div>
-
           <span className="text-xs text-white/20 font-mono">SMB1-1 · Judge Demo · ID: aura_8f2d</span>
         </div>
-
         <div className="flex items-center gap-3">
           <span className="text-xs text-white/30">72s recorded</span>
           <div className="px-3 py-1.5 rounded-lg text-xs font-bold tracking-widest uppercase border"
@@ -402,7 +387,7 @@ export default function Dashboard() {
             Processing Complete
           </div>
         </div>
-      </header>
+      </div>
 
       {/* Tab nav */}
       <div className="px-6 pt-5 pb-0 flex items-center gap-1 border-b border-white/5">

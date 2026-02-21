@@ -56,10 +56,10 @@ export default function SessionManagement() {
           <h2><span className="card-icon">➕</span><span className="card-label">New Session</span></h2>
           <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
             <input value={testerName} onChange={e => setTesterName(e.target.value)} placeholder="Tester name" style={{ maxWidth: 200 }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
               <label style={{ margin: 0, fontSize: 13, whiteSpace: 'nowrap' }}>⏱ Chunk Duration</label>
               <input type="range" min={5} max={30} step={1} value={chunkDuration} onChange={e => setChunkDuration(+e.target.value)} style={{ width: 100 }} />
-              <span className="stat-pill" style={{ minWidth: 42, textAlign: 'center' }}>{chunkDuration}s</span>
+              <span className="stat-pill" style={{ width: 42, textAlign: 'center', flexShrink: 0 }}>{chunkDuration}s</span>
             </div>
             <button className="btn-success" onClick={create}>🎮 Start Session</button>
           </div>

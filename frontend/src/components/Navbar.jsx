@@ -8,7 +8,7 @@ export default function Navbar() {
         </span>
       </div>
 
-      <div className="hidden ml-10 md:flex space-x-12 text-white/50 text-xs font-bold tracking-[0.2em] uppercase">
+      <div className="hidden ml-10 md:flex space-x-12 text-white text-xs font-bold tracking-[0.2em] uppercase">
         <a href="#" className="hover:text-white transition-colors">Pricing</a>
         <a href="#" className="hover:text-white transition-colors">Desktop</a>
         <a href="#" className="hover:text-white transition-colors">Contact</a>

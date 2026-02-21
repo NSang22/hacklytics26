@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
+import WhatIsIt from './components/WhatIsIt'
+import FAQ from './components/FAQ'
 
 const TOTAL_FRAMES = 207
 // Tweak this — 0.4 means full animation plays in first 40% of scroll
 // Lower = faster (more video-like), Higher = slower (more deliberate)
-const SCROLL_RANGE = 0.8
+const SCROLL_RANGE = 0.55
 
 const frameSrc = (i) =>
   `/frames/ezgif-frame-${String(i).padStart(3, '0')}.jpg`
@@ -85,7 +87,7 @@ function App() {
   }, [])
 
   return (
-    <div className="relative w-full" style={{ height: '230vh' }}>
+    <div className="relative w-full" style={{ height: '480vh' }}>
 
       {/* Background canvas — no img tag swapping, no flicker */}
       <canvas
@@ -101,6 +103,12 @@ function App() {
 
       {/* Hero */}
       <Hero />
+
+      {/* What Is It */}
+      <WhatIsIt />
+
+      {/* FAQ */}
+      <FAQ />
 
     </div>
   )
