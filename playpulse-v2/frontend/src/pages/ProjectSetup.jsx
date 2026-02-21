@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 const API = 'http://localhost:8000';
 
@@ -46,6 +46,11 @@ export default function ProjectSetup() {
   ]);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [optimalFile, setOptimalFile] = useState(null);
+  const [optimalStatus, setOptimalStatus] = useState(null);
+  const [optimalUploading, setOptimalUploading] = useState(false);
+  const [transitions, setTransitions] = useState([]);
+  const fileInputRef = useRef(null);
 
   const updateState = (i, field, val) => {
     const next = [...states];
@@ -54,6 +59,25 @@ export default function ProjectSetup() {
   };
   const addState = () => setStates([...states, { ...EMPTY_STATE }]);
   const removeState = (i) => setStates(states.filter((_, j) => j !== i));
+
+  // Transition helpers
+  const addTransition = () => setTransitions([...transitions, { from_state: '', to_state: '', trigger: '' }]);
+  const updateTransition = (i, field, val) => {
+    const next = [...transitions];
+    next[i] = { ...next[i], [field]: val };
+    setTransitions(next);
+  };
+  const removeTransition = (i) => setTransitions(transitions.filter((_, j) => j !== i));
+  const autoGenTransitions = () => {
+    // Generate linear transitions from state order
+    const auto = [];
+    for (let i = 0; i < states.length - 1; i++) {
+      if (states[i].name && states[i + 1].name) {
+        auto.push({ from_state: states[i].name, to_state: states[i + 1].name, trigger: 'progression' });
+      }
+    }
+    setTransitions(auto);
+  };
 
   const submit = async () => {
     setLoading(true);
@@ -67,6 +91,7 @@ export default function ProjectSetup() {
           failure_indicators: s.failure_indicators.split(',').map(x => x.trim()).filter(Boolean),
           success_indicators: s.success_indicators.split(',').map(x => x.trim()).filter(Boolean),
         })),
+        transitions: transitions.filter(t => t.from_state && t.to_state),
       };
       const resp = await fetch(`${API}/v1/projects`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -167,6 +192,36 @@ export default function ProjectSetup() {
         </button>
       </div>
 
+      {/* ── DFA Transitions ──────────────────────────────── */}
+      <div className="card">
+        <h2><span className="card-icon">🔗</span><span className="card-label">DFA Transitions</span></h2>
+        <p className="text-muted mb">
+          Define valid transitions between states. These help Gemini understand game flow.
+        </p>
+        {transitions.map((t, i) => (
+          <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center' }}>
+            <select value={t.from_state} onChange={e => updateTransition(i, 'from_state', e.target.value)} style={{ width: 160 }}>
+              <option value="">From…</option>
+              {states.filter(s => s.name).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+            </select>
+            <span style={{ fontSize: 18, opacity: 0.5 }}>→</span>
+            <select value={t.to_state} onChange={e => updateTransition(i, 'to_state', e.target.value)} style={{ width: 160 }}>
+              <option value="">To…</option>
+              {states.filter(s => s.name).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+            </select>
+            <input value={t.trigger} onChange={e => updateTransition(i, 'trigger', e.target.value)} placeholder="Trigger (e.g. progression)" style={{ width: 180 }} />
+            <button className="btn-sm btn-danger" onClick={() => removeTransition(i)}>✕</button>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-ghost" onClick={addTransition}>+ Add Transition</button>
+          <button className="btn-ghost" onClick={autoGenTransitions} style={{ background: 'rgba(99,102,241,.15)', borderColor: 'rgba(99,102,241,.3)' }}>
+            ⚡ Auto-Generate Linear
+          </button>
+        </div>
+      </div>
+
+      {/* ── Launch ───────────────────────────────────────── */}
       <div className="card card-glow">
         <h2><span className="card-icon">🚀</span><span className="card-label">Launch</span></h2>
         <button onClick={submit} disabled={loading} style={{ fontSize: 16, padding: '12px 32px' }}>
@@ -186,6 +241,82 @@ export default function ProjectSetup() {
           </div>
         )}
       </div>
+
+      {/* ── Optimal Playthrough Upload ───────────────────── */}
+      {result && result.project_id && (
+        <div className="card" style={{ borderLeft: '3px solid var(--blue)' }}>
+          <h2><span className="card-icon">🎬</span><span className="card-label">Optimal Playthrough Video</span></h2>
+          <p className="text-muted mb">
+            Upload a video of the intended/developer playthrough. AURA uses this as a reference 
+            to compare tester sessions against the "golden path". Gemini will analyze it to extract 
+            expected timing and emotional signatures per DFA state.
+          </p>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              onChange={e => setOptimalFile(e.target.files[0] || null)}
+              style={{ display: 'none' }}
+            />
+            <button
+              className="btn-ghost"
+              onClick={() => fileInputRef.current?.click()}
+              style={{ background: 'rgba(59,130,246,.1)', border: '1px dashed rgba(59,130,246,.4)', padding: '12px 24px' }}
+            >
+              🎬 {optimalFile ? optimalFile.name : 'Choose Video File…'}
+            </button>
+            {optimalFile && (
+              <span className="stat-pill" style={{ fontSize: 12 }}>
+                {(optimalFile.size / 1048576).toFixed(1)} MB
+              </span>
+            )}
+            <button
+              disabled={!optimalFile || optimalUploading}
+              onClick={async () => {
+                setOptimalUploading(true);
+                setOptimalStatus(null);
+                try {
+                  const fd = new FormData();
+                  fd.append('file', optimalFile);
+                  const resp = await fetch(`${API}/v1/projects/${result.project_id}/optimal-playthrough`, {
+                    method: 'POST',
+                    body: fd,
+                  });
+                  const data = await resp.json();
+                  setOptimalStatus({ ok: true, data });
+                } catch (e) {
+                  setOptimalStatus({ ok: false, error: e.message });
+                }
+                setOptimalUploading(false);
+              }}
+              style={{ fontSize: 14, padding: '10px 24px' }}
+            >
+              {optimalUploading ? '⏳ Analyzing…' : '📤 Upload & Analyze'}
+            </button>
+          </div>
+          {optimalStatus && (
+            <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: optimalStatus.ok ? 'rgba(16,185,129,.08)' : 'rgba(239,68,68,.08)', border: `1px solid ${optimalStatus.ok ? 'rgba(16,185,129,.2)' : 'rgba(239,68,68,.2)'}` }}>
+              {optimalStatus.ok ? (
+                <>
+                  <p style={{ color: 'var(--neon-green)', fontWeight: 700 }}>✅ Optimal playthrough processed!</p>
+                  <p className="text-sm text-muted">Gemini extracted reference emotional signatures for each DFA state.</p>
+                  {optimalStatus.data?.reference && (
+                    <details style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: 'pointer', fontSize: 13, opacity: 0.7 }}>View extracted reference data</summary>
+                      <pre style={{ fontSize: 11, marginTop: 8, padding: 8, background: 'rgba(0,0,0,.1)', borderRadius: 6, overflow: 'auto', maxHeight: 200 }}>
+                        {JSON.stringify(optimalStatus.data.reference, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </>
+              ) : (
+                <p style={{ color: 'var(--neon-red)' }}>❌ {optimalStatus.error}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
