@@ -59,6 +59,7 @@ session_verdicts: Dict[str, List[Dict]] = {}
 session_health: Dict[str, float] = {}
 session_insights: Dict[str, str] = {}
 session_events: Dict[str, List[Dict]] = {}
+session_emotion_frames: Dict[str, List[Dict]] = {}  # desktop client emotion data
 
 # ── FastAPI app ──────────────────────────────────────────────
 app = FastAPI(title="PlayPulse v2", version="2.0.0")
@@ -87,6 +88,16 @@ class UpdateDFAReq(BaseModel):
 class CreateSessionReq(BaseModel):
     tester_name: str = "anonymous"
     chunk_duration_sec: float = 15.0   # configurable; demo override = 10
+
+class EmotionFrameBatchReq(BaseModel):
+    frames: List[Dict] = []
+
+class WatchDataReq(BaseModel):
+    timestamp_sec: float = 0.0
+    heart_rate: float = 0.0
+    hrv_rmssd: float = 0.0
+    hrv_sdnn: float = 0.0
+    movement_variance: float = 0.0
 
 class SphinxQueryReq(BaseModel):
     question: str
@@ -323,27 +334,22 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
             prev_cr = chunk_results[session_id].get(chunk_index - 1)
             if prev_cr:
                 last_obs = prev_cr.states_observed[-1] if prev_cr.states_observed else None
-                # Count cumulative deaths from all prior chunks
-                cumulative_deaths = 0
-                for i in range(chunk_index):
-                    cr = chunk_results[session_id].get(i)
-                    if cr:
-                        cumulative_deaths += sum(
-                            1 for ev in cr.events if "death" in ev.label.lower()
-                        )
+                cumulative_deaths = prev_cr.cumulative_deaths  # already tracked cumulatively
                 prev_context = {
-                    "end_state": last_obs.state if last_obs else "unknown",
-                    "end_status": prev_cr.notes,
+                    "end_state": last_obs.state_name if last_obs else "unknown",
+                    "end_status": prev_cr.end_status,
                     "cumulative_deaths": cumulative_deaths,
                 }
 
+        chunk_dur = s.get("chunk_duration_sec", 10.0)
         result = await cp_process_chunk(
-            gemini_client=gemini,
-            chunk_index=chunk_index,
             video_bytes=video_bytes,
+            chunk_index=chunk_index,
+            chunk_start_sec=chunk_index * chunk_dur,
             dfa_config=p["dfa_config"],
             previous_context=prev_context,
             session_id=session_id,
+            gemini_client=gemini,
         )
         if session_id not in chunk_results:
             chunk_results[session_id] = {}
@@ -357,8 +363,8 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
             chunk_index=chunk_index,
             chunk_start_sec=chunk_index * chunk_dur,
             events=[
-                {"label": ev.label, "description": ev.description,
-                 "timestamp_sec": ev.timestamp_sec, "severity": ev.severity}
+                {"type": ev.type, "description": ev.description,
+                 "timestamp_sec": ev.timestamp_sec}
                 for ev in result.events
             ],
         )
@@ -395,9 +401,26 @@ async def finalize_session(session_id: str):
     # Store events
     session_events[session_id] = stitched.get("events", [])
 
-    # 2. Presage → emotion frames (from face video or stub)
-    face_bytes = session_face_video.get(session_id, b"")
-    emotion_frames = await presage.analyse_video(face_bytes, session_id)
+    # 2. Presage → emotion frames
+    #    Priority: desktop client live frames > face video batch > stub
+    desktop_frames = session_emotion_frames.get(session_id, [])
+    if desktop_frames:
+        # Use live emotion data from desktop client
+        emotion_frames = [
+            EmotionFrame(
+                timestamp_sec=f.get("timestamp_sec", 0),
+                frustration=f.get("frustration", 0),
+                confusion=f.get("confusion", 0),
+                delight=f.get("delight", 0),
+                boredom=f.get("boredom", 0),
+                surprise=f.get("surprise", 0),
+                engagement=f.get("engagement", 0),
+            )
+            for f in desktop_frames
+        ]
+    else:
+        face_bytes = session_face_video.get(session_id, b"")
+        emotion_frames = await presage.analyse_video(face_bytes, session_id)
 
     # 3. Watch data
     watch_data = session_watch_data.get(session_id, [])
@@ -423,13 +446,7 @@ async def finalize_session(session_id: str):
     # 5. Verdicts
     verdicts = []
     for state_def in dfa_config.states:
-        state_cfg = {
-            "name": state_def.name,
-            "intended_emotion": state_def.intended_emotion,
-            "acceptable_range": list(state_def.acceptable_range),
-            "expected_duration_sec": state_def.expected_duration_sec,
-        }
-        v = compute_verdict(fused, state_cfg)
+        v = compute_verdict(fused, state_def)
         verdicts.append(v)
     verdict_dicts = [v.__dict__ if hasattr(v, "__dict__") else v for v in verdicts]
     session_verdicts[session_id] = verdict_dicts
@@ -500,14 +517,16 @@ async def get_chunks(session_id: str):
         cr = crs[idx]
         out.append({
             "chunk_index": cr.chunk_index,
-            "chunk_start_sec": cr.chunk_start_sec,
-            "notes": cr.notes,
+            "chunk_start_sec": cr.time_range_sec[0],
+            "summary": cr.chunk_summary,
+            "end_status": cr.end_status,
             "states_observed": [
-                {"state": o.state, "confidence": o.confidence, "timestamp_in_chunk_sec": o.timestamp_in_chunk_sec}
+                {"state": o.state_name, "entered_at_sec": o.entered_at_sec,
+                 "exited_at_sec": o.exited_at_sec, "progress": o.progress}
                 for o in cr.states_observed
             ],
             "events": [
-                {"label": e.label, "description": e.description, "timestamp_sec": e.timestamp_sec, "severity": e.severity}
+                {"type": e.type, "description": e.description, "timestamp_sec": e.timestamp_sec}
                 for e in cr.events
             ],
         })
@@ -599,6 +618,62 @@ async def vector_search(project_id: str, body: VectorSearchReq):
     filters["project_id"] = project_id
     results = await vectorai.search(body.vector, body.top_k, filters)
     return {"results": results}
+
+# ────────────────────────────────────────────────────────────
+#   DESKTOP CLIENT — EMOTION FRAMES + WATCH REST
+# ────────────────────────────────────────────────────────────
+
+@app.post("/v1/sessions/{session_id}/emotion-frames")
+async def upload_emotion_frames(session_id: str, body: EmotionFrameBatchReq):
+    """Receive a batch of emotion frames from the desktop Presage client."""
+    s = sessions.get(session_id)
+    if not s:
+        raise HTTPException(404, "Session not found")
+    if session_id not in session_emotion_frames:
+        session_emotion_frames[session_id] = []
+    session_emotion_frames[session_id].extend(body.frames)
+    return {
+        "status": "ok",
+        "frames_received": len(body.frames),
+        "total_frames": len(session_emotion_frames[session_id]),
+    }
+
+
+@app.post("/v1/sessions/{session_id}/watch-data")
+async def upload_watch_data(session_id: str, body: WatchDataReq):
+    """REST fallback for watch readings (when WebSocket is unavailable)."""
+    s = sessions.get(session_id)
+    if not s:
+        raise HTTPException(404, "Session not found")
+    reading = {
+        "timestamp_sec": body.timestamp_sec,
+        "heart_rate": body.heart_rate,
+        "hrv_rmssd": body.hrv_rmssd,
+        "hrv_sdnn": body.hrv_sdnn,
+        "movement_variance": body.movement_variance,
+    }
+    if session_id not in session_watch_data:
+        session_watch_data[session_id] = []
+    session_watch_data[session_id].append(reading)
+    return {"status": "ok", "readings_count": len(session_watch_data[session_id])}
+
+
+@app.get("/v1/sessions/{session_id}/collection-status")
+async def collection_status(session_id: str):
+    """Return data collection stats for the desktop client / dashboard."""
+    s = sessions.get(session_id)
+    if not s:
+        raise HTTPException(404, "Session not found")
+    return {
+        "session_id": session_id,
+        "status": s["status"],
+        "chunks_uploaded": s.get("chunks_uploaded", 0),
+        "chunks_processed": s.get("chunks_processed", 0),
+        "emotion_frames": len(session_emotion_frames.get(session_id, [])),
+        "watch_readings": len(session_watch_data.get(session_id, [])),
+        "has_face_video": session_id in session_face_video,
+    }
+
 
 # ────────────────────────────────────────────────────────────
 #   WEBSOCKET — LIVE WATCH DATA

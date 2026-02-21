@@ -7,7 +7,7 @@ import FAQ from './components/FAQ'
 const TOTAL_FRAMES = 207
 // Tweak this — 0.4 means full animation plays in first 40% of scroll
 // Lower = faster (more video-like), Higher = slower (more deliberate)
-const SCROLL_RANGE = 0.55
+const SCROLL_RANGE = 0.95
 
 const frameSrc = (i) =>
   `/frames/ezgif-frame-${String(i).padStart(3, '0')}.jpg`
@@ -87,7 +87,7 @@ function App() {
   }, [])
 
   return (
-    <div className="relative w-full" style={{ height: '480vh' }}>
+    <div className="relative w-full" style={{ height: '180vh' }}>
 
       {/* Background canvas — no img tag swapping, no flicker */}
       <canvas
