@@ -8,6 +8,7 @@ Chunked gameplay analysis, three-stream fusion, verdict system.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import uuid
 import time
@@ -39,6 +40,9 @@ from gemini_client import GeminiClient
 from snowflake_client import SnowflakeClient
 from vectorai_client import VectorAIClient
 from sphinx_client import SphinxClient
+
+# ── Logging ──────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
 
 # ── Service clients ──────────────────────────────────────────
 presage = PresageClient()
@@ -367,6 +371,17 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
                 }
 
         chunk_dur = s.get("chunk_duration_sec", 10.0)
+        
+        # Extract emotion frames for this chunk's time window (for gaze overlay)
+        chunk_end_sec = (chunk_index + 1) * chunk_dur
+        chunk_emotion_frames = []
+        if session_id in session_emotion_frames:
+            chunk_emotion_frames = [
+                f for f in session_emotion_frames[session_id]
+                if chunk_index * chunk_dur <= f.get("timestamp_sec", 0.0) < chunk_end_sec
+            ]
+            logger.info(f"[main] Chunk {chunk_index}: found {len(chunk_emotion_frames)} emotion frames for gaze overlay")
+        
         result = await cp_process_chunk(
             video_bytes=video_bytes,
             chunk_index=chunk_index,
@@ -375,6 +390,7 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
             previous_context=prev_context,
             session_id=session_id,
             gemini_client=gemini,
+            emotion_frames=chunk_emotion_frames,
         )
         if session_id not in chunk_results:
             chunk_results[session_id] = {}

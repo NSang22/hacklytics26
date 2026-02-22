@@ -279,10 +279,21 @@ class FaceAnalyzer:
 
         # ── Expressions ───────────────────────────────────
         emotions = self._blendshapes_to_expressions(bs, pitch, yaw, roll)
+        
+        # Differential smoothing: positive emotions persist longer
         if self._prev_emotions is not None:
-            a = self._smoothing
             for k in emotions:
-                emotions[k] = a * self._prev_emotions.get(k, emotions[k]) + (1 - a) * emotions[k]
+                # Higher alpha = more persistence (more weight on previous value)
+                # Positive emotions (delight, surprise) should linger after expression ends
+                if k in ("delight", "surprise"):
+                    alpha = 0.6  # 60% previous, 40% current - slow decay
+                elif k == "engagement":
+                    alpha = 0.4  # Medium persistence for engagement
+                else:
+                    alpha = self._smoothing  # Default (0.3) for negative emotions
+                
+                emotions[k] = alpha * self._prev_emotions.get(k, emotions[k]) + (1 - alpha) * emotions[k]
+        
         self._prev_emotions = dict(emotions)
         result.emotions = {k: round(v, 3) for k, v in emotions.items()}
 
@@ -392,42 +403,47 @@ class FaceAnalyzer:
         )
 
         # === BOREDOM ===
-        # Low activity + eyes closed + looking down (at phone or distracted)
+        # ONLY triggered by actual disengagement: eyes closed + looking away
+        # Neutral face (no activity) should NOT score as bored
         blink = (bs.get("eyeBlinkLeft", 0) + bs.get("eyeBlinkRight", 0)) / 2
-        activity = (surprise + delight + frustration + confusion + jaw_open + smile) / 6
         
-        # Looking down bonus (pitch < -15 degrees = looking down, possibly at phone)
-        # Stronger boredom signal if head is tilted down significantly
-        looking_down_bonus = 0.0
+        # Looking away penalty (downward gaze suggests distraction/phone)
+        looking_away_score = 0.0
         if head_pitch < -15:
-            # Scale from -15° to -45° → 0.0 to 0.3 bonus
-            looking_down_bonus = min(0.3, abs(head_pitch + 15) / 100.0)
+            # Scale from -15° to -45° → 0.0 to 0.4
+            looking_away_score = min(0.4, abs(head_pitch + 15) / 75.0)
         
+        # Boredom requires ACTIVE disengagement signals, not just lack of expression
+        # Removed baseline activity penalty - neutral face = 0.0 boredom
         boredom = _clamp(
-            max(0, 0.5 - activity * 1.5) * 0.5 
-            + blink * 0.25 
-            + looking_down_bonus * 0.25
+            blink * 0.50  # Eyes closed
+            + looking_away_score * 0.50  # Looking down/away
         )
 
         # === ENGAGEMENT ===
-        # Eyes open + some expression + head movement (not slumped)
-        # TODO: Add mouth covering (hand over mouth) as excitement indicator when hand tracking enabled
+        # Attention-based: eyes open + looking at screen + facial activity
+        # Eyes closed or looking away = disengaged
         eye_wide = (bs.get("eyeWideLeft", 0) + bs.get("eyeWideRight", 0)) / 2
         
-        # Head posture bonus: upright head = more engaged
-        # Penalty for extreme downward tilt (disengaged/distracted)
-        head_posture = 1.0
-        if head_pitch < -30:  # Significantly looking down
-            head_posture = max(0.5, 1.0 + head_pitch / 60.0)
+        # Eye openness: not blinking = paying attention
+        eye_openness = 1.0 - blink
+        
+        # Attention direction: looking at screen vs looking away
+        # Neutral head position (±15°) = attentive, extreme tilt = disengaged
+        attention_direction = 1.0
+        if head_pitch < -20:  # Looking down significantly
+            attention_direction = max(0.3, 1.0 + (head_pitch + 20) / 50.0)
+        elif abs(head_yaw) > 25:  # Looking left/right away from screen
+            attention_direction = max(0.3, 1.0 - (abs(head_yaw) - 25) / 50.0)
+        
+        # Activity bonus (but not required for baseline engagement)
+        activity = (surprise + delight + frustration + confusion) / 4
         
         engagement = _clamp(
-            (
-                (1 - blink) * 0.30
-                + eye_wide * 0.15
-                + min(1.0, activity * 2) * 0.25
-                + head_posture * 0.20
-                + 0.10
-            )
+            eye_openness * 0.40  # Eyes open = engaged
+            + attention_direction * 0.35  # Looking at screen
+            + eye_wide * 0.10  # Interest/alertness
+            + min(1.0, activity * 1.5) * 0.15  # Facial activity bonus
         )
 
         return {

@@ -171,6 +171,7 @@ class GeminiClient:
         """Upload video bytes and call Gemini with prompt."""
         import io
         import tempfile
+        import time as sync_time
 
         # Write video to temp file for upload
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
@@ -179,6 +180,15 @@ class GeminiClient:
 
         try:
             video_file = self._client.files.upload(file=tmp_path)
+
+            # Wait for file to be ACTIVE (required for video processing)
+            print(f"[gemini] Uploaded file {video_file.name}, waiting for ACTIVE state...")
+            while video_file.state.name != "ACTIVE":
+                sync_time.sleep(1)
+                video_file = self._client.files.get(name=video_file.name)
+                if video_file.state.name == "FAILED":
+                    raise Exception(f"Video file processing failed: {video_file.name}")
+            print(f"[gemini] File {video_file.name} is ACTIVE, generating content...")
 
             response = self._client.models.generate_content(
                 model=model,
@@ -194,6 +204,14 @@ class GeminiClient:
                 text = text.split("```json")[1].split("```")[0]
             elif "```" in text:
                 text = text.split("```")[1].split("```")[0]
+            
+            # Clean up uploaded file from Gemini servers
+            try:
+                self._client.files.delete(name=video_file.name)
+                print(f"[gemini] Deleted file {video_file.name} from Gemini servers")
+            except Exception as cleanup_err:
+                print(f"[gemini] Could not delete file {video_file.name}: {cleanup_err}")
+            
             return json.loads(text.strip())
         except (json.JSONDecodeError, Exception) as e:
             print(f"[gemini] Parse error: {e}")

@@ -117,6 +117,12 @@ _DDL = {
             engagement      FLOAT,
             presage_hr      FLOAT,
             breathing_rate  FLOAT,
+            gaze_x          FLOAT,
+            gaze_y          FLOAT,
+            gaze_confidence FLOAT,
+            head_pitch      FLOAT,
+            head_yaw        FLOAT,
+            head_roll       FLOAT,
             raw_json        VARIANT
         )
     """,
@@ -261,12 +267,20 @@ def write_bronze_presage(
                  ["frustration", "confusion", "delight", "boredom", "surprise", "engagement"]}
             d["presage_hr"]     = float(f.get("heart_rate", f.get("hr", 0.0)))
             d["breathing_rate"] = float(f.get("breathing_rate", 0.0))
+            d["gaze_x"]         = float(f.get("gaze_x", 0.5))
+            d["gaze_y"]         = float(f.get("gaze_y", 0.5))
+            d["gaze_confidence"] = float(f.get("gaze_confidence", 0.0))
+            d["head_pitch"]     = float(f.get("head_pitch", 0.0))
+            d["head_yaw"]       = float(f.get("head_yaw", 0.0))
+            d["head_roll"]      = float(f.get("head_roll", 0.0))
 
         rows.append((
             session_id, project_id, ts,
             d["frustration"], d["confusion"], d["delight"],
             d["boredom"], d["surprise"], d["engagement"],
             d["presage_hr"], d["breathing_rate"],
+            d["gaze_x"], d["gaze_y"], d["gaze_confidence"],
+            d["head_pitch"], d["head_yaw"], d["head_roll"],
             json.dumps(d),
         ))
 
@@ -280,8 +294,11 @@ def write_bronze_presage(
             INSERT INTO BRONZE_PRESAGE
             (session_id, project_id, timestamp_sec,
              frustration, confusion, delight, boredom, surprise, engagement,
-             presage_hr, breathing_rate, raw_json)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, PARSE_JSON(%s))
+             presage_hr, breathing_rate,
+             gaze_x, gaze_y, gaze_confidence,
+             head_pitch, head_yaw, head_roll,
+             raw_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, PARSE_JSON(%s))
         """
         _executemany(conn, sql, rows)
         logger.info(f"[snowflake] BRONZE_PRESAGE: inserted {len(rows)} rows for session {session_id}")
