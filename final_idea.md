@@ -1,325 +1,351 @@
 ===============================
+<<<<<<< Updated upstream
 AURA — Multimodal Neuro-Symbolic Playtest Engine
 Hacklytics 2026 — Entertainment Track
 ===============================
+=======
+PatchLab -- Multimodal Playtest Intelligence Engine
+Hacklytics 2026 -- Entertainment Track
+===============================
+
+>>>>>>> Stashed changes
 1. CORE PRODUCT DEFINITION
-One-Line Definition
 
-Real-time multimodal playtest engine that measures player emotion, compares it to developer intent, and automatically identifies broken game mechanics.
+One-Line Definition:
+Real-time multimodal playtest engine that measures player emotion via on-device facial analysis and biometrics, compares it to developer intent, and automatically identifies broken game mechanics.
 
-Core Insight
-
+Core Insight:
 Studios record what players do.
-AURA measures what players feel.
+PatchLab measures what players feel.
 
 2. SYSTEM OVERVIEW
-Input Modalities
-Stream	Frequency	Purpose
-Gameplay Video	30 FPS (chunked 10s)	Extract semantic state transitions
-Webcam (Presage)	10 Hz	Facial affect (Frustration, Confusion, Delight, Boredom)
-Apple Watch	1 Hz	HR + HRV (physiological stress/arousal)
-Developer Intent	Pre-session	Intended emotional arc per DFA state
+
+Input Modalities:
+Stream              Frequency       Purpose
+Gameplay Video      Configurable    Extract DFA state transitions via Gemini Vision
+                    (1-30 FPS,
+                    chunked 10-15s)
+Webcam (MediaPipe)  10 Hz           Facial affect via 52 ARKit blendshapes + iris gaze tracking
+Apple Watch BLE     1 Hz            HR + HRV (physiological stress/arousal)
+Developer Intent    Pre-session     Intended emotional arc per DFA state
+
 3. ARCHITECTURE OVERVIEW
-Stage 1 — Data Collection (Local Machine)
-Desktop Capture Agent (Python)
 
-mss (screen capture)
++------------------------------------------------------------------+
+|  STAGE 1 -- DATA COLLECTION (Desktop Client, Python/tkinter)     |
+|                                                                  |
+|  ScreenCapture --> .webm chunks (10-15s, VP9)                    |
+|  WebcamCapture --> MediaPipe FaceAnalyzer (10 Hz emotions)       |
+|  WatchBLE      --> Apple Watch HR/HRV via BLE (1 Hz)             |
+|                                                                  |
+|  ChunkUploader --> async upload to backend (3 workers)           |
+|    * POST /upload-chunk (screen video chunks)                    |
+|    * POST /emotion-frames (emotion batch every 2s)               |
+|    * WS /watch-data (HR/HRV stream, REST fallback)               |
++----------------------------+-------------------------------------+
+                             |
+                             v
++------------------------------------------------------------------+
+|  STAGE 2 -- PROCESSING PIPELINE (FastAPI Backend, Python)        |
+|                                                                  |
+|  On chunk upload:                                                |
+|    ChunkProcessor --> extract frames (2 FPS) --> overlay gaze    |
+|    --> Gemini 2.5 Flash vision prompt --> JSON: states, events   |
+|                                                                  |
+|  On session finalize:                                            |
+|    1. Stitch all chunk results into unified timeline             |
+|    2. Gather emotion frames from desktop client                  |
+|    3. Gather Apple Watch HR/HRV data                             |
+|    4. FUSION ENGINE --> 1-Hz aligned DataFrame                   |
+|    5. Verdicts: actual emotions vs DFA intent per state          |
+|    6. Health Score: weighted average of PASS/WARN/FAIL           |
+|    7. Embeddings --> VectorAI (10-sec sliding windows)            |
+|    8. Gemini 2.5 Flash --> markdown session insights             |
+|    9. Snowflake write (Bronze -> Silver -> Gold)                 |
++----------------------------+-------------------------------------+
+                             |
+                             v
++------------------------------------------------------------------+
+|  STAGE 3 -- STORAGE LAYER                                        |
+|                                                                  |
+|  Snowflake (Medallion Architecture)                              |
+|  Actian VectorAI (Cross-session embeddings)                      |
+|  In-memory fallback when credentials unavailable                 |
++----------------------------+-------------------------------------+
+                             |
+                             v
++------------------------------------------------------------------+
+|  STAGE 4 -- DASHBOARD (React + Recharts + Tailwind)              |
+|                                                                  |
+|  Landing page with scroll-driven frame animation                 |
+|  Full dashboard: Setup, Sessions, Review, Aggregate, Sphinx      |
++------------------------------------------------------------------+
 
-OpenCV
+All data processing is done in Python (FastAPI backend + desktop client).
 
-tkinter (UI)
+Stage 1 -- Desktop Capture Agent (Python, tkinter)
 
-PyInstaller packaging
+1080-line tkinter GUI with two-column layout:
+  Left:  connection settings, screen capture, camera, Apple Watch, upload stats
+  Right: live camera feed, emotion bars, gaze visualizer, screen preview, activity log
 
-Responsibilities:
+Technologies:
+  mss -- cross-platform screen capture
+  OpenCV -- video encoding (VP9 .webm), webcam access
+  MediaPipe FaceLandmarker -- facial expression + gaze analysis (replaces Presage SDK)
+  bleak -- Apple Watch BLE (Heart Rate Profile 0x180D/0x2A37)
+  tkinter + Pillow -- desktop GUI with live previews
 
-Capture screen at 30 FPS
+Key capabilities:
+  * Screen capture at configurable FPS (1-30) and resolution
+  * Auto-chunking into 10-15 second VP9 .webm segments
+  * Webcam recording with real-time 10 Hz emotion analysis
+  * Apple Watch BLE connection (HR + RR intervals -> RMSSD/SDNN)
+  * 9-point gaze calibration (polynomial iris->screen mapping)
+  * 3-step face calibration (neutral -> smile -> eyes wide)
+  * Per-person baseline calibration from first ~30 frames
+  * Async chunk upload to backend (3 parallel workers)
+  * Preview-first: screen + webcam previews start on launch, independent of recording
 
-Capture webcam
+MediaPipe Emotion Detection (replaces Presage):
 
-Stream Apple Watch BLE data
+Uses MediaPipe FaceLandmarker with output_face_blendshapes=True providing 52 ARKit-standard
+blendshapes. Maps blendshapes to 6 emotions:
 
-Chunk video into 10s segments
+  Emotion        Formula
+  Surprise       browInnerUp*0.25 + eyeWide*0.35 + jawOpen*0.40
+  Delight        smile*0.65 + cheekSquint*0.35 + closed-mouth bonus
+  Frustration    browDown*0.40 + mouthPress*0.30 + noseSneer*0.30
+  Confusion      browDown + eyeSquint + mouthFrown + mouthPucker + head-tilt bonus
+  Boredom        Sustained eye closure (>0.7 threshold) + looking away (>-20 deg pitch)
+  Engagement     Eye openness*0.40 + attention direction*0.35 + eyeWide*0.10 + activity*0.15
 
-Upload chunks async to backend
+Additional features:
+  * Per-person baseline calibration: auto-calibrates from first ~30 frames, subtracts neutral face
+  * Explicit 3-step calibration: Neutral -> Smile -> Eyes Wide, computes expression scaling factors
+  * Temporal smoothing: Differential EMA -- positive emotions persist longer (a=0.75) than negative (a=0.35)
 
-Simplified loop:
+Iris-Based Gaze & Eye Tracking:
 
-while recording:
-    chunk = capture_10_seconds(monitor, fps=30)
-    upload_async(chunk, session_id, chunk_index)
-    chunk_index += 1
-Presage SDK
+Two-source fusion:
+  * Blendshape eye-look directions (60% weight): eyeLookIn/Out/Up/Down Left+Right
+  * Iris landmark positions (40% weight): MediaPipe landmarks 468-477
 
-Outputs (0.0–1.0):
+Optional 9-point polynomial calibration:
+  User fixates 9 screen points -> 2nd-order polynomial least-squares fit maps iris ratios -> screen px.
+  Gaze position is overlaid as yellow crosshair on video frames sent to Gemini.
 
-Frustration
+Head pose estimation via cv2.solvePnP (pitch/yaw/roll).
 
-Confusion
+Apple Watch BLE:
 
-Delight
+  Heart Rate (fast arousal signal)
+  HRV via RR intervals (RMSSD, SDNN -- stress/cognitive load)
+  1 Hz physiological stream via BLE Heart Rate Profile.
 
-Boredom
+Developer Intent Annotation:
 
-10 Hz emotional signal.
+  For each DFA state, developers define:
+    State Name
+    Description + Visual Cues
+    Intended Primary Emotion
+    Acceptable Emotional Range (min/max)
+    Expected Duration
+    Failure Indicators
 
-Primary emotion sensor.
+  Transforms system from "measurement" -> "verdict".
 
-Apple Watch BLE
+4. STAGE 2 -- PROCESSING PIPELINE (FastAPI, Python)
 
-Heart Rate (fast arousal signal)
+All processing runs in the Python backend -- no separate GPU service needed.
 
-HRV (stress/cognitive load)
+4A. DFA State Extraction (Gemini 2.5 Flash Vision)
 
-1 Hz physiological stream.
+Game progression modeled as DFA:
+  M = (Q, S, d, q0, F)
+  Where:
+    Q = Game states (developer-defined)
+    S = Visual event tokens
+    d = Gemini 2.5 Flash (transition function)
+    F = Accepting states
 
-Developer Intent Annotation
+Processing per chunk:
+  1. Receive .webm video chunk (~10-15s)
+  2. Extract frames at configurable FPS (default 2)
+  3. If gaze data available, overlay yellow crosshair at gaze position
+  4. Send frames to Gemini 2.5 Flash with structured prompt containing:
+     - DFA state definitions (names, visual cues, failure indicators)
+     - Previous chunk's end state (context continuity)
+  5. Gemini returns JSON:
+     {
+       "states_observed": [{"state": "First_Pit", "confidence": 0.9, "timestamp": 3.5}],
+       "transitions": [{"from": "Ground_Run", "to": "First_Pit", "trigger": "pit_visible"}],
+       "events": [{"label": "Player_Died", "description": "...", "timestamp": 24, "severity": "high"}],
+       "end_state": "First_Pit"
+     }
+  6. stitch_chunk_results() merges all chunk results into unified timeline
 
-For each DFA state:
+4B. Temporal Alignment & Fusion (Python)
 
-State Name
+Three-stream fusion engine aligns to unified 1Hz timeline:
+  - Emotion frames (10 Hz -> 1 Hz averaging)
+  - Watch data (1 Hz -> forward-fill)
+  - DFA states (event-based -> expanded to 1 Hz)
 
-Intended Primary Emotion
+  Computes intent_delta = |actual_emotion - intended_emotion| per state per second.
+  Each row = 1 second of gameplay with all streams merged.
 
-Acceptable Emotional Range (min/max)
+4C. Cross-Modal Embedding (CPU)
 
-Transforms system from “measurement” → “verdict”.
+10-second sliding windows -> feature vector concatenation (no external ML model):
+  - 6 emotion averages (frustration, confusion, delight, boredom, surprise, engagement)
+  - Normalized HR + normalized HRV + HR variance
+  - Movement score
+  - One-hot DFA state encoding
 
-4. STAGE 2 — PROCESSING PIPELINE (Vultr)
-4A. DFA State Extraction (Gemini Vision)
+Stored in Actian VectorAI with cosine similarity search.
+Purpose: Cross-session pattern detection ("find similar gameplay moments").
 
-Game progression modeled as:
+4D. Session Insights (Gemini 2.5 Flash)
 
-M = (Q, Σ, δ, q₀, F)
-
-Where:
-
-Q = Game states
-
-Σ = Visual event tokens
-
-δ = Gemini Vision (transition function)
-
-F = Accepting states
-
-Gemini processes each 10s chunk → returns strict JSON:
-
-{
-  "current_state": "First_Pit",
-  "transitions": [
-    {"event": "Player_Died", "timestamp": 24}
-  ]
-}
-
-Output validated against optional game event log (if instrumented).
-
-4B. Temporal Alignment (CPU)
-
-Resample all streams to unified 1Hz timeline.
-
-df_presage_1hz = df_presage.resample('1S').mean().interpolate(method='time')
-df_watch_1hz = df_watch.resample('1S').mean().ffill()
-df_states_1hz = expand_dfa_states_to_1hz(gemini_output)
-
-df_fused = pd.concat([df_presage_1hz, df_watch_1hz, df_states_1hz], axis=1)
-
-df_fused['intent_delta'] = abs(
-    df_fused['frustration'] - intended_score[df_fused['state']]
-)
-
-Each row = 1 second of gameplay.
-
-4C. Cross-Modal Embedding (GPU)
-
-Serialize each 10s window:
-
-state: Boss_Fight | t: 47 |
-frustration: 0.82 | confusion: 0.41 |
-delight: 0.12 | boredom: 0.03 |
-HR: 94 | HRV: 28 |
-intent_delta: 0.52
-
-Embedded via:
-
-bge-large-en
-
-Stored in Actian VectorAI (HNSW index)
-
-Purpose:
-Semantic trajectory search across sessions.
+After fusion + verdicts, Gemini generates markdown session insights summarizing
+key findings, emotional patterns, and design recommendations.
 
 5. STORAGE LAYER
-Snowflake (Relational Time-Series)
 
-Medallion:
+Snowflake (Medallion Architecture):
 
-Bronze: raw streams
+  Bronze Layer:
+    BRONZE_GAMEPLAY_EVENTS  -- raw game events from Gemini extraction
+    BRONZE_PRESAGE          -- raw emotion frames (with gaze_x/y, head pose, AUs)
+    BRONZE_WATCH            -- raw HR/HRV readings
+    BRONZE_CHUNKS           -- per-chunk Gemini analysis results
 
-Silver: resampled streams
+  Silver Layer:
+    SILVER_FUSED            -- 1-Hz aligned rows with all streams merged
 
-Gold: fused + intent_delta
+  Gold Layer:
+    GOLD_STATE_VERDICTS     -- per-state PASS/WARN/FAIL verdicts
+    GOLD_SESSION_SUMMARY    -- session health scores, dominant emotions
 
-Used for:
+  write_all() writes Bronze -> Silver -> Gold in a single connection.
+  Falls back to in-memory storage when Snowflake credentials unavailable.
 
-Aggregations
+Actian VectorAI:
 
-Per-state health scores
-
-Dashboard analytics
-
-Actian VectorAI
-
-Stores:
-
-Cross-modal embeddings
-Enables:
-
-Similarity search
-
-Cross-session pattern detection
+  Collection: patchlab_embeddings
+  10-sec window vectors stored with session/project metadata
+  Cosine similarity search for cross-session comparison
+  Fallback: persistent JSON file (vectorai_fallback.json) with manual cosine similarity
 
 6. VERDICT LAYER
-Playtest Health Score
 
-Based on intent_delta.
+Playtest Health Score based on intent_delta:
 
-Thresholds:
+  Thresholds:
+    PASS  (Green)  -- intent_delta < 0.2
+    WARN  (Yellow) -- intent_delta 0.2-0.4
+    FAIL  (Red)    -- intent_delta > 0.4
 
-Green < 0.2
+  Directional verdict per DFA state:
+    Too frustrated?
+    Not tense enough?
+    Unexpected boredom?
 
-Yellow 0.2–0.4
+  Session health score = weighted average of all state verdicts.
+  Supports longitudinal comparison across playtest iterations.
 
-Red > 0.4
+7. DASHBOARD (React + Recharts + Tailwind)
 
-Directional verdict:
+Landing Page:
+  Scroll-driven 207-frame animation, Hero section, "What Is It" explainer, FAQ.
 
-Too frustrated?
+Dashboard Pages:
 
-Not tense enough?
+  Project Setup:
+    Full DFA state editor (name, intended_emotion, acceptable_range, expected_duration,
+    visual_cues, failure_indicators). Includes Mario 1-1 preset. Calls POST /v1/projects.
 
-Unexpected boredom?
+  Session Management:
+    Create sessions with configurable chunk duration, list sessions with health scores,
+    generate tester game URL with embedded SDK.
 
-Supports longitudinal comparison across playtest iterations.
+  Session Review:
+    Deep-dive tabs:
+      Overview -- emotion timeline (Recharts), HR chart, Gemini-generated insights
+      Chunks -- per-chunk analysis details
+      Events -- game events with severity levels
+      Verdicts -- per-state PASS/WARN/FAIL cards with directional feedback
 
-7. DASHBOARD FEATURES (React)
-Core Panels
+  Cross-Tester Aggregate:
+    Health score trend line, bar comparison, per-state verdict summary table,
+    pain point rankings, cross-tester Gemini insights.
 
-Emotion Timeline (per second)
-
-DFA State Overlay
-
-Intent vs Reality Histogram
-
-Cross-Tester Overlay
-
-Playtest Health Score
-
-Pain Point Rankings
+  Sphinx Explorer:
+    NL query input + example queries. UI fully built. (Backend stub -- not yet implemented.)
 
 8. SPHINX AI COPILOT
 
-Natural language analytics over:
+Frontend UI is fully built with NL query input and example queries.
+Backend returns stub response -- not yet implemented.
+Static demo available in the landing page dashboard mockup.
 
-Snowflake
+9. GAME SDK
 
-VectorAI
+HTML5 Canvas demo game with 5 DFA states + ChunkedGameRecorder (chunked-recorder.js):
+  - MediaRecorder API with VP9 codec
+  - Auto-chunks gameplay video and uploads to backend
+  - Game event reporting via postMessage
+  - Loadable via iframe with session_id + backend_url params
 
-Example:
+10. DEMO -- Mario 1-1
 
-"Group by DFA state. Show average frustration and HR per state."
-
-Returns:
-
-Executed SQL
-
-Python plotting code
-
-Matplotlib visualization
-
-9. DEMO — Mario 1-1
 Why Mario?
-
-Universal recognition
-
-Known emotional beats
-
-Reliable failure points
-
-Strong narrative hook
+  Universal recognition
+  Known emotional beats
+  Reliable failure points
+  Strong narrative hook
 
 Core finding:
-First pit appears before pit mechanics are taught.
-Frustration spike > intended tense range.
-Verdict: FAIL.
+  First pit appears before pit mechanics are taught.
+  Frustration spike > intended tense range.
+  Verdict: FAIL.
 
 Memorable pitch line:
-"We just found a 40-year-old design flaw in the most famous level ever made."
+  "We just found a 40-year-old design flaw in the most famous level ever made."
 
-10. TEAM ALLOCATION (36 HOURS)
-Role	Responsibility
-Capture + Demo	Python agent, Mario setup, fallback game
-Backend + Pipeline	FastAPI, resampling, Snowflake, intent delta
-AI Intelligence	Gemini DFA, embeddings, Sphinx
-Dashboard	React portal, live analytics
-11. BUILD PRIORITY
-MVP (0–18 hours)
+11. TECH STACK SUMMARY
 
-Capture agent
+  Layer               Technology
+  Desktop Client      Python, tkinter, mss, OpenCV, Pillow
+  Emotion Detection   MediaPipe FaceLandmarker (52 ARKit blendshapes)
+  Eye/Gaze Tracking   MediaPipe iris landmarks (468-477) + blendshape fusion
+  Physiological       bleak (BLE Heart Rate Profile)
+  Backend             Python, FastAPI, uvicorn, OpenCV, Pydantic
+  AI/Vision           Google Gemini 2.5 Flash (google-genai SDK)
+  Storage             Snowflake (snowflake-connector-python), Actian VectorAI (REST)
+  Frontend            React, React Router, Recharts, Tailwind CSS, Vite
+  Game SDK            Vanilla JS, Canvas API, MediaRecorder (VP9)
 
-FastAPI ingestion
+12. WHAT'S FULLY IMPLEMENTED
 
-Gemini DFA extraction
+  [x] MediaPipe face analysis (blendshape->emotion, gaze, head pose, calibration, smoothing)
+  [x] Face calibration (3-step) + gaze calibration (9-point polynomial)
+  [x] Screen capture with configurable FPS/resolution/chunking
+  [x] Webcam capture with threaded ~10 Hz emotion analysis
+  [x] Apple Watch BLE connection (HR + RR intervals -> RMSSD/SDNN)
+  [x] Full 1080-line desktop GUI with live previews
+  [x] Chunk processor (frame extraction, gaze overlay, Gemini prompt)
+  [x] Gemini 2.5 Flash DFA extraction + session insights
+  [x] 3-stream fusion engine (1 Hz alignment, intent_delta)
+  [x] Verdict system (PASS/WARN/FAIL per state, health score)
+  [x] Embedding generation (feature vectors, 10-sec windows)
+  [x] Snowflake full medallion write (Bronze -> Silver -> Gold)
+  [x] VectorAI upsert + cosine similarity search
+  [x] All 5 dashboard pages (Setup, Sessions, Review, Aggregate, Sphinx UI)
+  [x] Landing page with scroll-driven frame animation
+  [x] Demo HTML5 Canvas game with ChunkedGameRecorder SDK
+  [x] Async 3-worker chunk upload pipeline
 
-Presage integration
-
-1Hz fusion
-
-Basic dashboard
-
-Should Have (18–28 hours)
-
-Snowflake
-
-Embeddings
-
-Intent form
-
-Cross-tester overlay
-
-Nice to Have (28–36 hours)
-
-Sphinx
-
-Longitudinal comparison
-
-VectorAI
-
-Packaging
-
-12. RISK MITIGATION
-
-Gemini fails on NES → fallback HTML5 demo
-
-Presage slow → use pre-recorded data
-
-Watch fails → CSV fallback
-
-Snowflake slow → PostgreSQL fallback
-
-Time shortage → Cut Sphinx + VectorAI
-
-Core MVP remains competitive.
-
-FINAL EXECUTION RULE FOR TEAM
-
-If something doesn’t directly improve:
-
-Emotional fusion
-
-DFA accuracy
-
-Verdict clarity
-
-Demo impact
-
-Cut it.
+  [ ] Sphinx AI Copilot -- frontend UI built, backend stub only
+  [ ] Presage SDK -- fully replaced by MediaPipe (presage_client.py is a random-data stub)

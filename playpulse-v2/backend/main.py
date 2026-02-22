@@ -1,5 +1,5 @@
 """
-PlayPulse v2 — FastAPI backend
+PatchLab — FastAPI backend
 ===============================
 All endpoints from the spec, in-memory stores for hackathon speed.
 Chunked gameplay analysis, three-stream fusion, verdict system.
@@ -62,7 +62,7 @@ session_events: Dict[str, List[Dict]] = {}
 session_emotion_frames: Dict[str, List[Dict]] = {}  # desktop client emotion data
 
 # ── FastAPI app ──────────────────────────────────────────────
-app = FastAPI(title="PlayPulse v2", version="2.0.0")
+app = FastAPI(title="PatchLab", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -719,7 +719,7 @@ async def watch_stream(ws: WebSocket, session_id: str):
 @app.get("/")
 async def root():
     return {
-        "service": "PlayPulse v2",
+        "service": "PatchLab",
         "version": "2.0.0",
         "projects": len(projects),
         "sessions": len(sessions),
