@@ -172,12 +172,15 @@ class StateVerdict(BaseModel):
     state_name: str
     intended_emotion: str
     acceptable_range: Tuple[float, float] = (0.0, 1.0)
-    actual_avg_score: float = 0.0
+    actual_avg_score: float = 0.0          # blended positive score (primary emotions)
     actual_dominant_emotion: str = ""
     actual_distribution: Dict[str, float] = {}
     actual_duration_sec: float = 0.0
     expected_duration_sec: float = 0.0
     time_delta_sec: float = 0.0
     intent_met: bool = False
-    deviation_score: float = 0.0
+    deviation_score: float = 0.0           # overall severity (contradiction + time)
+    contradiction_score: float = 0.0       # how much contradictory emotion was present
+    contradiction_detail: Dict[str, float] = {}  # per-emotion contradiction contributions
+    positive_score: float = 0.0            # weighted blend of primary-indicator emotions
     verdict: str = "NO_DATA"  # PASS | WARN | FAIL | NO_DATA

@@ -136,7 +136,8 @@ class SnowflakeClient:
                 dfa_state             STRING        NOT NULL,
                 intended_emotion      STRING,
                 actual_emotion        STRING,
-                intended_score_avg    FLOAT,
+                positive_score        FLOAT,
+                contradiction_score   FLOAT,
                 acceptable_min        FLOAT,
                 acceptable_max        FLOAT,
                 verdict               STRING,
@@ -144,6 +145,7 @@ class SnowflakeClient:
                 actual_duration_sec   FLOAT,
                 expected_duration_sec FLOAT,
                 time_delta_sec        FLOAT,
+                contradiction_detail  VARIANT,
                 computed_at           TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
             )
             """,
@@ -259,18 +261,23 @@ class SnowflakeClient:
             INSERT INTO gold_state_verdicts
                 (session_id, project_id, dfa_state,
                  intended_emotion, actual_emotion,
-                 intended_score_avg, acceptable_min, acceptable_max,
+                 positive_score, contradiction_score,
+                 acceptable_min, acceptable_max,
                  verdict, deviation_score,
-                 actual_duration_sec, expected_duration_sec, time_delta_sec)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 actual_duration_sec, expected_duration_sec, time_delta_sec,
+                 contradiction_detail)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    PARSE_JSON(%s))
         """
         rows = [
             (
                 session_id, project_id, v["dfa_state"],
                 v.get("intended_emotion"), v.get("actual_emotion"),
-                v.get("intended_score_avg"), v.get("acceptable_min"), v.get("acceptable_max"),
+                v.get("positive_score"), v.get("contradiction_score"),
+                v.get("acceptable_min"), v.get("acceptable_max"),
                 v.get("verdict"), v.get("deviation_score"),
                 v.get("actual_duration_sec"), v.get("expected_duration_sec"), v.get("time_delta_sec"),
+                json.dumps(v.get("contradiction_detail", {})),
             )
             for v in verdicts
         ]

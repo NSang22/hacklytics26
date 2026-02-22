@@ -82,31 +82,34 @@ Now you can ask: *"What was the player feeling at second 45?"* — one row answe
 ### GOLD — The answers the developer actually cares about
 
 #### `gold_state_verdicts`
-The verdict engine filters the Silver timeline by DFA state and compares against what the developer intended.
+The verdict engine filters the Silver timeline by DFA state and scores using a **contradiction-based** approach: how much do detected emotions contradict the developer's intent?
 
-**Example for `puzzle_room`:**
-- Developer said: intended emotion = `curious`, acceptable range = `[0.4, 0.8]`
-- Silver rows where `dfa_state = "puzzle_room"` span t=30 to t=74 (44 seconds)
-- Average `confusion` score across those 44 rows = **0.71** — and `confusion` was the dominant emotion, not `curious` (avg = 0.22)
-- `curious` score 0.22 is below the acceptable minimum of 0.4 → **FAIL**
-- Time delta: player spent 44s, developer expected 20s → time_delta = +24s
+**Scoring model:**
+- **positive_score**: Weighted blend of emotions that *support* the intended feeling (e.g., for `excited`: delight 0.5 + engagement 0.3 + surprise 0.2)
+- **contradiction_score**: Weighted blend of emotions that *contradict* the intent (e.g., for `excited`: boredom 1.0 + frustration 0.6)
+- **verdict**: PASS if contradiction < 0.15 and positive >= threshold; WARN if contradiction < 0.30; FAIL otherwise. Time overrun can downgrade PASS → WARN but never causes FAIL on its own.
 
-| session_id | dfa_state | intended_emotion | actual_emotion | intended_score_avg | verdict | deviation_score | time_delta_sec |
-|---|---|---|---|---|---|---|---|
-| sess_abc | tutorial | calm | calm | 0.74 | PASS | 0.05 | +2s |
-| sess_abc | puzzle_room | curious | confused | 0.22 | FAIL | 0.78 | +24s |
-| sess_abc | surprise_event | surprised | surprised | 0.68 | PASS | 0.12 | -1s |
-| sess_abc | gauntlet | tense | tense | 0.55 | WARN | 0.32 | +8s |
-| sess_abc | victory | satisfied | satisfied | 0.88 | PASS | 0.04 | 0s |
+**Example for `puzzle_room` (intended = `curious`):**
+- Primary signals: confusion 0.4, engagement 0.3, surprise 0.3 → positive_score = 0.58
+- Contradiction signals: boredom 1.0, frustration 0.6 → contradiction_score = 0.08
+- Low contradiction + decent positive → **PASS**
+
+| session_id | dfa_state | intended_emotion | actual_emotion | positive_score | contradiction_score | verdict | deviation_score | time_delta_sec |
+|---|---|---|---|---|---|---|---|---|
+| sess_abc | tutorial | calm | calm | 0.74 | 0.03 | PASS | 0.05 | +2s |
+| sess_abc | puzzle_room | curious | confused | 0.58 | 0.08 | PASS | 0.22 | +24s |
+| sess_abc | surprise_event | surprised | surprised | 0.68 | 0.04 | PASS | 0.12 | -1s |
+| sess_abc | gauntlet | tense | frustrated | 0.55 | 0.22 | WARN | 0.32 | +8s |
+| sess_abc | victory | satisfied | satisfied | 0.88 | 0.01 | PASS | 0.04 | 0s |
 
 #### `gold_session_health`
 Rolls all verdicts into a single Playtest Health Score.
 
 | session_id | health_score | pass_count | warn_count | fail_count | total_duration_sec |
 |---|---|---|---|---|---|
-| sess_abc | 0.72 | 3 | 1 | 1 | 120 |
+| sess_abc | 0.88 | 4 | 1 | 0 | 120 |
 
-Health score formula: `(PASS×1.0 + WARN×0.5 + FAIL×0.0) / total_states` → `(3 + 0.5 + 0) / 5 = 0.72`
+Health score formula: `PASS=1.0, WARN=0.6, FAIL=max(0, 1 - contradiction_score × 3)` averaged across all states.
 
 #### `gold_cross_session_aggregates`
 After 5 testers have played, `refresh_cross_session_aggregates()` aggregates across all sessions.

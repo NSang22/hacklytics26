@@ -36,7 +36,6 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from config import (
-    EMOTION_COLUMN_MAP,
     MOCK_MODE,
     SNOWFLAKE_ACCOUNT,
     SNOWFLAKE_DATABASE,
@@ -44,9 +43,9 @@ from config import (
     SNOWFLAKE_SCHEMA,
     SNOWFLAKE_USER,
     SNOWFLAKE_WAREHOUSE,
-    WARN_DELTA_THRESHOLD,
 )
 from models import ChunkResult, DFAConfig
+from verdict import EMOTION_PROFILES, _DEFAULT_PROFILE
 
 logger = logging.getLogger(__name__)
 
@@ -180,16 +179,17 @@ _DDL = {
             project_id            VARCHAR(64),
             state_name            VARCHAR(128)  NOT NULL,
             intended_emotion      VARCHAR(64),
-            intended_score        FLOAT,
             acceptable_range_low  FLOAT,
             acceptable_range_high FLOAT,
-            actual_avg_score      FLOAT,
-            intent_delta_avg      FLOAT,
+            positive_score        FLOAT,
+            contradiction_score   FLOAT,
+            deviation_score       FLOAT,
             actual_duration_sec   INT,
             expected_duration_sec FLOAT,
             duration_delta_sec    FLOAT,
             verdict               VARCHAR(8),
-            dominant_emotion      VARCHAR(64)
+            dominant_emotion      VARCHAR(64),
+            contradiction_detail  VARIANT
         )
     """,
     "GOLD_SESSION_SUMMARY": """
@@ -467,36 +467,33 @@ def write_silver(
 # GOLD writes — verdict logic
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _compute_verdict(
-    actual_avg_score: float,
-    intent_delta_avg: float,
-    acceptable_range: tuple,
-) -> str:
-    """
-    PASS  — actual score is within the acceptable range
-    WARN  — outside range but delta < WARN_DELTA_THRESHOLD
-    FAIL  — outside range and delta >= WARN_DELTA_THRESHOLD
-    """
-    lo, hi = acceptable_range
-    if lo <= actual_avg_score <= hi:
-        return "PASS"
-    if intent_delta_avg < WARN_DELTA_THRESHOLD:
-        return "WARN"
-    return "FAIL"
+# Verdict logic replaced by contradiction-based scoring (see verdict.py)
+# _compute_verdict is no longer used — verdicts are built in _build_state_verdicts
 
 
 def _compute_playtest_health_score(
     state_verdicts: List[Dict],
 ) -> float:
     """
-    Weighted health score 0–100.
-    PASS = 100, WARN = 60, FAIL = 0 per state.
+    Weighted health score 0-100.
+    PASS = 100, WARN = 60, FAIL = scaled by contradiction severity.
     States without data count as WARN.
     """
     if not state_verdicts:
         return 0.0
-    score_map = {"PASS": 100.0, "WARN": 60.0, "FAIL": 0.0, "NO_DATA": 60.0}
-    scores = [score_map.get(v["verdict"], 60.0) for v in state_verdicts]
+    scores = []
+    for v in state_verdicts:
+        verdict = v["verdict"]
+        if verdict == "PASS":
+            scores.append(100.0)
+        elif verdict == "WARN":
+            scores.append(60.0)
+        elif verdict == "FAIL":
+            cs = v.get("contradiction_score", 0.5)
+            ds = v.get("deviation_score", 0.5)
+            scores.append(max(0.0, 100.0 * (1.0 - cs - ds * 0.3)))
+        else:
+            scores.append(60.0)  # NO_DATA
     return round(sum(scores) / len(scores), 1)
 
 
@@ -538,28 +535,30 @@ def write_gold(
                 session_id, project_id,
                 v["state_name"],
                 v["intended_emotion"],
-                v["intended_score"],
                 v["acceptable_range"][0],
                 v["acceptable_range"][1],
-                v["actual_avg_score"],
-                v["intent_delta_avg"],
+                v["positive_score"],
+                v["contradiction_score"],
+                v["deviation_score"],
                 v["actual_duration_sec"],
                 v["expected_duration_sec"],
                 v["duration_delta_sec"],
                 v["verdict"],
                 v["dominant_emotion"],
+                json.dumps(v["contradiction_detail"]),
             )
             for v in state_verdicts
         ]
         if verdict_rows:
             _executemany(conn, """
                 INSERT INTO GOLD_STATE_VERDICTS
-                (session_id, project_id, state_name, intended_emotion, intended_score,
+                (session_id, project_id, state_name, intended_emotion,
                  acceptable_range_low, acceptable_range_high,
-                 actual_avg_score, intent_delta_avg,
+                 positive_score, contradiction_score, deviation_score,
                  actual_duration_sec, expected_duration_sec, duration_delta_sec,
-                 verdict, dominant_emotion)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 verdict, dominant_emotion, contradiction_detail)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        PARSE_JSON(%s))
             """, verdict_rows)
 
         # Write session summary
@@ -629,6 +628,7 @@ def _build_state_verdicts(
 
     # Build DFA lookup
     dfa_lookup = {s.name: s for s in dfa_config.states}
+    emotion_keys = ["frustration", "confusion", "delight", "boredom", "surprise", "engagement"]
     verdicts = []
 
     for state_name, group in fused_df.groupby("state"):
@@ -636,26 +636,76 @@ def _build_state_verdicts(
         if dfa_state is None:
             continue  # skip states not in DFA (e.g. 'unknown')
 
-        emotion_col = EMOTION_COLUMN_MAP.get(dfa_state.intended_emotion.lower(), "frustration")
-        intended_score = (dfa_state.acceptable_range[0] + dfa_state.acceptable_range[1]) / 2.0
-        actual_avg = float(group[emotion_col].mean()) if emotion_col in group.columns else 0.0
-        delta_avg  = float(group["intent_delta"].mean())
+        intended = dfa_state.intended_emotion
+        low, high = dfa_state.acceptable_range
+
+        # Average each emotion across this state's rows
+        emotion_avgs = {}
+        for ek in emotion_keys:
+            if ek in group.columns:
+                emotion_avgs[ek] = float(group[ek].mean())
+            else:
+                emotion_avgs[ek] = 0.0
+
         dom_emotion = str(group["dominant_emotion"].mode()[0]) if len(group) > 0 else "unknown"
 
-        verdict = _compute_verdict(actual_avg, delta_avg, tuple(dfa_state.acceptable_range))
+        # Look up profile (same as verdict.py)
+        profile = EMOTION_PROFILES.get(intended.lower().strip(), _DEFAULT_PROFILE)
+
+        # Positive score: weighted blend of primary emotions
+        positive_score = 0.0
+        for ek, weight in profile["primary"].items():
+            positive_score += weight * emotion_avgs.get(ek, 0.0)
+        positive_score = min(positive_score, 1.0)
+
+        # Contradiction score: weighted blend of bad signals
+        contradiction_detail = {}
+        contradiction_score = 0.0
+        for ek, severity in profile["contradictions"].items():
+            avg = emotion_avgs.get(ek, 0.0)
+            if avg > 0.05:
+                contribution = severity * avg
+                contradiction_detail[ek] = round(contribution, 4)
+                contradiction_score += contribution
+        contradiction_score = min(contradiction_score, 1.0)
+
+        # Timing
+        actual_dur = len(group)
+        expected_dur = dfa_state.expected_duration_sec
+        time_ratio = actual_dur / expected_dur if expected_dur > 0 else 1.0
+        time_penalty = 0.0
+        if time_ratio < 0.25:
+            time_penalty = 0.15
+        elif time_ratio > 4.0:
+            time_penalty = 0.2
+        elif time_ratio > 2.0:
+            time_penalty = 0.1
+
+        # Verdict
+        if contradiction_score < 0.15 and positive_score >= low:
+            verdict = "PASS"
+        elif contradiction_score < 0.3 and positive_score >= low * 0.5:
+            verdict = "WARN"
+        else:
+            verdict = "FAIL"
+        if verdict == "PASS" and time_penalty >= 0.15:
+            verdict = "WARN"
+
+        deviation = min(contradiction_score + time_penalty * 0.3, 1.0)
 
         verdicts.append({
-            "state_name":          str(state_name),
-            "intended_emotion":    dfa_state.intended_emotion,
-            "intended_score":      round(intended_score, 3),
-            "acceptable_range":    tuple(dfa_state.acceptable_range),
-            "actual_avg_score":    round(actual_avg, 4),
-            "intent_delta_avg":    round(delta_avg, 4),
-            "actual_duration_sec": len(group),
-            "expected_duration_sec": dfa_state.expected_duration_sec,
-            "duration_delta_sec":  round(len(group) - dfa_state.expected_duration_sec, 1),
-            "verdict":             verdict,
-            "dominant_emotion":    dom_emotion,
+            "state_name":           str(state_name),
+            "intended_emotion":     intended,
+            "acceptable_range":     tuple(dfa_state.acceptable_range),
+            "positive_score":       round(positive_score, 4),
+            "contradiction_score":  round(contradiction_score, 4),
+            "deviation_score":      round(deviation, 4),
+            "actual_duration_sec":  actual_dur,
+            "expected_duration_sec": expected_dur,
+            "duration_delta_sec":   round(actual_dur - expected_dur, 1),
+            "verdict":              verdict,
+            "dominant_emotion":     dom_emotion,
+            "contradiction_detail": contradiction_detail,
         })
 
     return verdicts
