@@ -1,14 +1,7 @@
 ===============================
-<<<<<<< Updated upstream
-AURA — Multimodal Neuro-Symbolic Playtest Engine
-Hacklytics 2026 — Entertainment Track
-===============================
-=======
 PatchLab -- Multimodal Playtest Intelligence Engine
 Hacklytics 2026 -- Entertainment Track
 ===============================
-
->>>>>>> Stashed changes
 1. CORE PRODUCT DEFINITION
 
 One-Line Definition:
@@ -159,31 +152,63 @@ Developer Intent Annotation:
 
 All processing runs in the Python backend -- no separate GPU service needed.
 
-4A. DFA State Extraction (Gemini 2.5 Flash Vision)
+4A. DFA State Extraction (Gemini 2.5 Flash Vision -- Frame-Based DFA)
 
-Game progression modeled as DFA:
-  M = (Q, S, d, q0, F)
+Game progression modeled as a DFA where Gemini acts as the transition function:
+  M = (Q, Σ, δ, q₀, F)
   Where:
-    Q = Game states (developer-defined)
-    S = Visual event tokens
-    d = Gemini 2.5 Flash (transition function)
+    Q = Game states (developer-defined, with visual cues and expected durations)
+    Σ = Consecutive JPEG frames extracted from gameplay video
+    δ = Gemini 2.5 Flash (processes frame pairs to detect state transitions)
+    q₀ = First developer-defined state
     F = Accepting states
+
+Key insight: instead of sending a whole video to Gemini and asking "what states
+are in this clip?", we send individual JPEG frames as inline image parts and
+tell Gemini its current state. Gemini compares consecutive frame pairs to detect
+when the visual content changes enough to indicate a state transition — exactly
+like a DFA transition function δ(current_state, input) → next_state.
+
+This solves the "single-state collapse" problem where Gemini would classify an
+entire chunk as one state (e.g. overworld_start for 316s) because it had no
+concept of "current state" or sequential frame-by-frame comparison.
 
 Processing per chunk:
   1. Receive .webm video chunk (~10-15s)
-  2. Extract frames at configurable FPS (default 2)
-  3. If gaze data available, overlay yellow crosshair at gaze position
-  4. Send frames to Gemini 2.5 Flash with structured prompt containing:
-     - DFA state definitions (names, visual cues, failure indicators)
-     - Previous chunk's end state (context continuity)
-  5. Gemini returns JSON:
+  2. Extract JPEG frames at configurable FPS (default 2) using OpenCV
+  3. If gaze data available, overlay yellow crosshair at gaze position on each frame
+  4. Build DFA transition prompt that includes:
+     - CURRENT STATE (from previous chunk's end_state, or first DFA state)
+     - All DFA state definitions (names, visual_cues, expected_duration, indicators)
+     - Expected progression order or explicit transition graph
+     - Context from previous chunk (end_state, end_status, cumulative_deaths)
+     - Frame timestamps (absolute session seconds)
+  5. Send frames as inline JPEG image parts (types.Part.from_bytes) + text prompt
+     to Gemini 2.5 Flash — NOT as a video upload
+  6. Gemini processes frames sequentially and returns JSON:
      {
-       "states_observed": [{"state": "First_Pit", "confidence": 0.9, "timestamp": 3.5}],
-       "transitions": [{"from": "Ground_Run", "to": "First_Pit", "trigger": "pit_visible"}],
-       "events": [{"label": "Player_Died", "description": "...", "timestamp": 24, "severity": "high"}],
-       "end_state": "First_Pit"
+       "states_observed": [
+         {"state_name": "overworld_start", "entered_at_sec": 0.0, "exited_at_sec": 7.5,
+          "player_behavior": "progressing", "progress": "normal"}
+       ],
+       "transitions": [
+         {"from_state": "overworld_start", "to_state": "ground_run",
+          "timestamp_sec": 7.5, "confidence": 0.92}
+       ],
+       "events": [
+         {"type": "death", "description": "Fell into pit",
+          "timestamp_sec": 24.0, "state": "first_pit"}
+       ],
+       "end_state": "first_pit",
+       "end_status": "progressing",
+       "chunk_summary": "Player progressed through overworld into ground run..."
      }
-  6. stitch_chunk_results() merges all chunk results into unified timeline
+  7. _parse_gemini_response() converts raw JSON into typed ChunkResult models
+  8. stitch_chunk_results() merges all chunk results into unified timeline
+
+Retry logic: up to 3 attempts with exponential backoff per chunk.
+Mock mode: returns realistic fake data with simulated state progression.
+Graceful degradation: falls back to mock if no API key, no video, or 0 frames extracted.
 
 4B. Temporal Alignment & Fusion (Python)
 
@@ -321,8 +346,8 @@ Memorable pitch line:
   Emotion Detection   MediaPipe FaceLandmarker (52 ARKit blendshapes)
   Eye/Gaze Tracking   MediaPipe iris landmarks (468-477) + blendshape fusion
   Physiological       bleak (BLE Heart Rate Profile)
-  Backend             Python, FastAPI, uvicorn, OpenCV, Pydantic
-  AI/Vision           Google Gemini 2.5 Flash (google-genai SDK)
+  Backend             Python, FastAPI, uvicorn, OpenCV (frame extraction), Pydantic
+  AI/Vision           Google Gemini 2.5 Flash (google-genai SDK, inline frame parts)
   Storage             Snowflake (snowflake-connector-python), Actian VectorAI (REST)
   Frontend            React, React Router, Recharts, Tailwind CSS, Vite
   Game SDK            Vanilla JS, Canvas API, MediaRecorder (VP9)
@@ -335,8 +360,9 @@ Memorable pitch line:
   [x] Webcam capture with threaded ~10 Hz emotion analysis
   [x] Apple Watch BLE connection (HR + RR intervals -> RMSSD/SDNN)
   [x] Full 1080-line desktop GUI with live previews
-  [x] Chunk processor (frame extraction, gaze overlay, Gemini prompt)
-  [x] Gemini 2.5 Flash DFA extraction + session insights
+  [x] Chunk processor (OpenCV frame extraction, gaze overlay, DFA transition prompt)
+  [x] Gemini 2.5 Flash frame-based DFA extraction (inline JPEG parts, not video upload)
+  [x] Gemini 2.5 Flash session insights generation
   [x] 3-stream fusion engine (1 Hz alignment, intent_delta)
   [x] Verdict system (PASS/WARN/FAIL per state, health score)
   [x] Embedding generation (feature vectors, 10-sec windows)
