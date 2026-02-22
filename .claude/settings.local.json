@@ -5,7 +5,9 @@
       "Bash(python -c:*)",
       "Bash(python test_gemini_pipeline.py:*)",
       "Bash(python -m json.tool:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(git pull:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

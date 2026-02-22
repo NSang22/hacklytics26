@@ -2,7 +2,7 @@
    PlayPulse v2 — Bright & Colorful Gaming Dashboard
    ═══════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
 
 /* ─── Keyframes ─── */
 @keyframes gradientShift {
@@ -91,8 +91,12 @@
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Nunito', 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
   line-height: 1.6;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Nunito', 'Segoe UI', system-ui, sans-serif;
 }
 
 /* ─── App Shell ─── */

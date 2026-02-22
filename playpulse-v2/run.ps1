@@ -17,9 +17,9 @@ Start-Process -NoNewWindow powershell -ArgumentList "-Command cd '$backendDir'; 
 
 Start-Sleep 2
 
-# Frontend (dev server)
+# Frontend (dev server) — use the new frontend at repo root
 Write-Host "[2/4] Starting frontend on :3000..." -ForegroundColor Yellow
-$frontendDir = Join-Path $PSScriptRoot "frontend"
+$frontendDir = Join-Path $PSScriptRoot "..\frontend"
 Start-Process -NoNewWindow powershell -ArgumentList "-Command cd '$frontendDir'; npx vite --host" -PassThru | Out-Null
 
 # Game (simple HTTP server)
