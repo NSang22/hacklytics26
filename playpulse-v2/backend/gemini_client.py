@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Model selection per task ──────────────────────────────────
-MODEL_CHUNK_ANALYSIS = "gemini-2.0-flash"       # runs every 15s during gameplay
+MODEL_CHUNK_ANALYSIS = "gemini-2.5-flash"       # runs every 15s during gameplay
 MODEL_OPTIMAL_ANALYSIS = "gemini-2.5-flash"      # runs once for optimal playthrough
 MODEL_INSIGHT_GENERATION = "gemini-2.5-flash"    # post-session insight generation
 
@@ -99,18 +99,27 @@ class GeminiClient:
         frames: List[Tuple[bytes, float]],
         prompt: str,
     ) -> Dict:
-        """Build a multipart request with one Part per frame, then prompt."""
+        """Build a multipart request with one Part per frame, then prompt.
+
+        Runs the synchronous SDK call in a thread executor so the asyncio
+        event loop stays unblocked while Gemini processes the request.
+        """
+        import asyncio
         from google.genai import types
 
         parts = []
         for jpeg_bytes, ts in frames:
             parts.append(types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"))
-            parts.append(types.Part.from_text(f"[t={ts:.1f}s]"))
-        parts.append(types.Part.from_text(prompt))
+            parts.append(types.Part.from_text(text=f"[t={ts:.1f}s]"))
+        parts.append(types.Part.from_text(text=prompt))
 
-        response = self._client.models.generate_content(
-            model=MODEL_CHUNK_ANALYSIS,
-            contents=parts,
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self._client.models.generate_content(
+                model=MODEL_CHUNK_ANALYSIS,
+                contents=parts,
+            ),
         )
 
         text = response.text
