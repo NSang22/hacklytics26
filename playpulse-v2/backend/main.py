@@ -420,15 +420,10 @@ async def _process_frames_bg(session_id: str, chunk_index: int, frame_list: List
             prev_cr = chunk_results[session_id].get(chunk_index - 1)
             if prev_cr:
                 last_obs = prev_cr.states_observed[-1] if prev_cr.states_observed else None
-                cumulative_deaths = sum(
-                    1 for i in range(chunk_index)
-                    for ev in (chunk_results[session_id].get(i) or type("", (), {"events": []})()).events
-                    if "death" in ev.label.lower()
-                )
                 prev_context = {
-                    "end_state": last_obs.state if last_obs else "unknown",
-                    "end_status": prev_cr.notes,
-                    "cumulative_deaths": cumulative_deaths,
+                    "end_state": last_obs.state_name if last_obs else "unknown",
+                    "end_status": prev_cr.end_status,
+                    "cumulative_deaths": prev_cr.cumulative_deaths,
                 }
 
         dfa_config = p["dfa_config"]
@@ -440,55 +435,71 @@ async def _process_frames_bg(session_id: str, chunk_index: int, frame_list: List
                 f"Cumulative deaths: {prev_context['cumulative_deaths']}\n"
             )
 
+        chunk_duration = s.get("chunk_duration_sec", 15.0)
         state_desc = "\n".join(
-            f"  - {s_def.name}: {s_def.description}, visual_cues={s_def.visual_cues}"
+            f"  - {s_def.name}: {s_def.description}, visual_cues={s_def.visual_cues}, "
+            f"failure_indicators={s_def.failure_indicators}, success_indicators={s_def.success_indicators}"
             for s_def in dfa_config.states
         )
         prompt = (
-            f"Analyze these gameplay frames (chunk #{chunk_index}).\n\n"
+            f"Analyze these {len(frame_list)} gameplay frames (chunk #{chunk_index}, "
+            f"covering ~{chunk_duration:.0f}s of gameplay).\n\n"
             f"DFA States:\n{state_desc}\n{context_prompt}\n\n"
-            "Return JSON:\n"
-            '{"states_observed":[{"state":"<name>","confidence":0.0-1.0,"timestamp_in_chunk_sec":0.0}],'
-            '"transitions":[{"from_state":"...","to_state":"...","trigger":"...","timestamp_sec":0.0}],'
-            '"events":[{"label":"...","description":"...","timestamp_sec":0.0,"severity":"info|warning|critical"}],'
-            '"notes":"Brief context for next chunk"}'
+            "Return ONLY valid JSON (no markdown):\n"
+            '{"states_observed":['
+            '{"state_name":"<dfa_state_name>","entered_at_sec":0.0,"exited_at_sec":15.0,'
+            '"duration_sec":15.0,"player_behavior":"brief description","progress":"normal",'
+            '"matches_success_indicators":false,"matches_failure_indicators":false}'
+            '],"transitions":['
+            '{"from_state":"...","to_state":"...","timestamp_sec":0.0,"confidence":0.9}'
+            '],"events":['
+            '{"type":"death|stuck|backtrack|close_call|exploration","timestamp_sec":0.0,"description":"...","state":"..."}'
+            '],"end_state":"<last_state_name>","end_status":"brief status","cumulative_deaths":0,"chunk_summary":"one sentence"}'
         )
 
         raw = await gemini.process_frames(frame_list, prompt, session_id)
 
         from models import ChunkResult, ChunkStateObservation, ChunkTransition, ChunkEvent
 
-        chunk_start_sec = chunk_index * s.get("chunk_duration_sec", 15.0)
+        chunk_start_sec = chunk_index * chunk_duration
         result = ChunkResult(
             chunk_index=chunk_index,
-            chunk_start_sec=chunk_start_sec,
+            time_range_sec=(chunk_start_sec, chunk_start_sec + chunk_duration),
             states_observed=[
                 ChunkStateObservation(
-                    state=o.get("state", "unknown"),
-                    confidence=o.get("confidence", 0.5),
-                    timestamp_in_chunk_sec=o.get("timestamp_in_chunk_sec", 0.0),
+                    state_name=o.get("state_name", o.get("state", "unknown")),
+                    entered_at_sec=o.get("entered_at_sec", 0.0),
+                    exited_at_sec=o.get("exited_at_sec", chunk_duration),
+                    duration_sec=o.get("duration_sec", chunk_duration),
+                    player_behavior=o.get("player_behavior", ""),
+                    progress=o.get("progress", "normal"),
+                    matches_success_indicators=o.get("matches_success_indicators", False),
+                    matches_failure_indicators=o.get("matches_failure_indicators", False),
                 )
                 for o in raw.get("states_observed", [])
             ],
             transitions=[
                 ChunkTransition(
-                    from_state=t.get("from_state", ""),
-                    to_state=t.get("to_state", ""),
-                    trigger=t.get("trigger", ""),
+                    from_state=t.get("from_state"),
+                    to_state=t.get("to_state", "unknown"),
                     timestamp_sec=t.get("timestamp_sec", 0.0),
+                    confidence=t.get("confidence", 1.0),
                 )
                 for t in raw.get("transitions", [])
             ],
             events=[
                 ChunkEvent(
-                    label=e.get("label", ""),
-                    description=e.get("description", ""),
+                    type=e.get("type", "exploration"),
                     timestamp_sec=e.get("timestamp_sec", 0.0),
-                    severity=e.get("severity", "info"),
+                    description=e.get("description", ""),
+                    state=e.get("state", ""),
                 )
                 for e in raw.get("events", [])
             ],
-            notes=raw.get("notes", ""),
+            end_state=raw.get("end_state", ""),
+            end_status=raw.get("end_status", ""),
+            cumulative_deaths=raw.get("cumulative_deaths", 0),
+            chunk_summary=raw.get("chunk_summary", raw.get("notes", "")),
         )
 
         if session_id not in chunk_results:
@@ -502,8 +513,8 @@ async def _process_frames_bg(session_id: str, chunk_index: int, frame_list: List
             chunk_index=chunk_index,
             chunk_start_sec=chunk_index * chunk_dur,
             events=[
-                {"label": ev.label, "description": ev.description,
-                 "timestamp_sec": ev.timestamp_sec, "severity": ev.severity}
+                {"label": ev.type, "description": ev.description,
+                 "timestamp_sec": ev.timestamp_sec, "severity": "info"}
                 for ev in result.events
             ],
         )
