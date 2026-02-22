@@ -13,9 +13,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# ── Load .env from repo root (two levels up from this file) ──────────────────
-_ROOT = Path(__file__).resolve().parents[2]  # playpulse-v2/backend/ -> repo root
-load_dotenv(_ROOT / ".env", override=False)   # won't override already-set env vars
+# ── Load .env — try backend/.env first, then repo root ───────────────────────
+_BACKEND_DIR = Path(__file__).resolve().parent           # playpulse-v2/backend/
+_ROOT = _BACKEND_DIR.parents[1]                          # hacklytics26/
+load_dotenv(_BACKEND_DIR / ".env", override=False)       # backend/.env (primary)
+load_dotenv(_ROOT / ".env", override=False)              # repo root fallback
 
 # ── Master mock switch ────────────────────────────────────────────────────────
 # Flip to False when you're ready to use real Gemini / Snowflake / VectorAI
@@ -23,7 +25,7 @@ MOCK_MODE: bool = os.getenv("MOCK_MODE", "true").lower() in ("true", "1", "yes")
 
 # ── Gemini ────────────────────────────────────────────────────────────────────
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL_CHUNK: str = "gemini-2.0-flash"
+GEMINI_MODEL_CHUNK: str = "gemini-2.5-flash"
 GEMINI_MODEL_INSIGHT: str = "gemini-2.5-flash"
 CHUNK_FPS: int = int(os.getenv("CHUNK_FPS", "2"))   # frames per second to sample
 

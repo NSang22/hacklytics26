@@ -271,20 +271,20 @@ class FaceAnalyzer:
                 bs[b.category_name] = round(b.score, 4)
         result.action_units = bs
 
+        # ── Head Pose (computed first for use in expressions) ───
+        pitch, yaw, roll = self._compute_head_pose(lm, w, h)
+        result.head_pitch = round(pitch, 1)
+        result.head_yaw = round(yaw, 1)
+        result.head_roll = round(roll, 1)
+
         # ── Expressions ───────────────────────────────────
-        emotions = self._blendshapes_to_expressions(bs)
+        emotions = self._blendshapes_to_expressions(bs, pitch, yaw, roll)
         if self._prev_emotions is not None:
             a = self._smoothing
             for k in emotions:
                 emotions[k] = a * self._prev_emotions.get(k, emotions[k]) + (1 - a) * emotions[k]
         self._prev_emotions = dict(emotions)
         result.emotions = {k: round(v, 3) for k, v in emotions.items()}
-
-        # ── Head Pose ─────────────────────────────────────
-        pitch, yaw, roll = self._compute_head_pose(lm, w, h)
-        result.head_pitch = round(pitch, 1)
-        result.head_yaw = round(yaw, 1)
-        result.head_roll = round(roll, 1)
 
         # ── Gaze ──────────────────────────────────────────
         iris_rx, iris_ry = self._compute_iris_ratios(lm, bs)
@@ -321,10 +321,28 @@ class FaceAnalyzer:
     # ── Blendshape → Expression Mapping ────────────────
 
     @staticmethod
-    def _blendshapes_to_expressions(bs: Dict[str, float]) -> Dict[str, float]:
-        """Map 52 ARKit blendshapes → 6 playtest expression categories."""
+    def _blendshapes_to_expressions(
+        bs: Dict[str, float],
+        head_pitch: float = 0.0,
+        head_yaw: float = 0.0,
+        head_roll: float = 0.0
+    ) -> Dict[str, float]:
+        """Map 52 ARKit blendshapes + head pose → 6 playtest expression categories.
+        
+        Enhanced with:
+        - Closed-mouth smile detection for genuine delight
+        - Head tilt for confusion
+        - Looking down for boredom
+        - Head movement patterns for engagement
+        
+        Future enhancements (requires hand tracking):
+        - Head scratching → increased confusion
+        - Face palming → frustration spike
+        - Mouth covering → excitement/surprise
+        """
 
-        # Surprise: brows up + eyes wide + jaw open
+        # === SURPRISE ===
+        # Brows up + eyes wide + jaw open
         surprise = _clamp(
             (
                 bs.get("browInnerUp", 0) * 0.25
@@ -334,12 +352,23 @@ class FaceAnalyzer:
             * 1.4
         )
 
-        # Delight: smile + cheek squint
+        # === DELIGHT ===
+        # Differentiate between closed-mouth smile (genuine delight) and open smile
         smile = (bs.get("mouthSmileLeft", 0) + bs.get("mouthSmileRight", 0)) / 2
         cheek = (bs.get("cheekSquintLeft", 0) + bs.get("cheekSquintRight", 0)) / 2
-        delight = _clamp((smile * 0.65 + cheek * 0.35) * 1.4)
+        jaw_open = bs.get("jawOpen", 0)
+        
+        # Closed-mouth smile = high smile + low jaw open + cheek squint
+        # This is a more genuine/satisfied expression
+        closed_smile_bonus = 0.0
+        if smile > 0.3 and jaw_open < 0.2:
+            closed_smile_bonus = 0.2 * (1 - jaw_open)
+        
+        delight = _clamp((smile * 0.65 + cheek * 0.35 + closed_smile_bonus) * 1.4)
 
-        # Frustration: brows down + mouth press + nose sneer
+        # === FRUSTRATION ===
+        # Brows down + mouth press + nose sneer
+        # TODO: Add face palm detection when hand tracking is enabled
         brow_down = (bs.get("browDownLeft", 0) + bs.get("browDownRight", 0)) / 2
         mouth_press = (bs.get("mouthPressLeft", 0) + bs.get("mouthPressRight", 0)) / 2
         nose_sneer = (bs.get("noseSneerLeft", 0) + bs.get("noseSneerRight", 0)) / 2
@@ -347,25 +376,58 @@ class FaceAnalyzer:
             (brow_down * 0.40 + mouth_press * 0.30 + nose_sneer * 0.30) * 1.5
         )
 
-        # Confusion: brows down + squint + frown + pucker
+        # === CONFUSION ===
+        # Brows down + squint + frown + pucker
+        # Enhanced with head tilt detection (side-to-side tilting often indicates confusion)
+        # TODO: Add head scratching detection when hand tracking is enabled
         eye_squint = (bs.get("eyeSquintLeft", 0) + bs.get("eyeSquintRight", 0)) / 2
         mouth_frown = (bs.get("mouthFrownLeft", 0) + bs.get("mouthFrownRight", 0)) / 2
+        
+        # Head tilt bonus (confusion often shows as head tilting)
+        head_tilt_bonus = min(0.25, abs(head_roll) / 100.0) if abs(head_roll) > 10 else 0.0
+        
         confusion = _clamp(
-            (brow_down * 0.35 + eye_squint * 0.25 + mouth_frown * 0.25 + bs.get("mouthPucker", 0) * 0.15) * 1.3
+            (brow_down * 0.35 + eye_squint * 0.25 + mouth_frown * 0.25 
+             + bs.get("mouthPucker", 0) * 0.15 + head_tilt_bonus * 0.2) * 1.3
         )
 
-        # Boredom: low activity + eyes closed
+        # === BOREDOM ===
+        # Low activity + eyes closed + looking down (at phone or distracted)
         blink = (bs.get("eyeBlinkLeft", 0) + bs.get("eyeBlinkRight", 0)) / 2
-        activity = (surprise + delight + frustration + confusion + bs.get("jawOpen", 0) + smile) / 6
-        boredom = _clamp(max(0, 0.5 - activity * 1.5) * 0.7 + blink * 0.3)
+        activity = (surprise + delight + frustration + confusion + jaw_open + smile) / 6
+        
+        # Looking down bonus (pitch < -15 degrees = looking down, possibly at phone)
+        # Stronger boredom signal if head is tilted down significantly
+        looking_down_bonus = 0.0
+        if head_pitch < -15:
+            # Scale from -15° to -45° → 0.0 to 0.3 bonus
+            looking_down_bonus = min(0.3, abs(head_pitch + 15) / 100.0)
+        
+        boredom = _clamp(
+            max(0, 0.5 - activity * 1.5) * 0.5 
+            + blink * 0.25 
+            + looking_down_bonus * 0.25
+        )
 
-        # Engagement: eyes open + some expression
+        # === ENGAGEMENT ===
+        # Eyes open + some expression + head movement (not slumped)
+        # TODO: Add mouth covering (hand over mouth) as excitement indicator when hand tracking enabled
         eye_wide = (bs.get("eyeWideLeft", 0) + bs.get("eyeWideRight", 0)) / 2
+        
+        # Head posture bonus: upright head = more engaged
+        # Penalty for extreme downward tilt (disengaged/distracted)
+        head_posture = 1.0
+        if head_pitch < -30:  # Significantly looking down
+            head_posture = max(0.5, 1.0 + head_pitch / 60.0)
+        
         engagement = _clamp(
-            (1 - blink) * 0.35
-            + eye_wide * 0.15
-            + min(1.0, activity * 2) * 0.25
-            + 0.25
+            (
+                (1 - blink) * 0.30
+                + eye_wide * 0.15
+                + min(1.0, activity * 2) * 0.25
+                + head_posture * 0.20
+                + 0.10
+            )
         )
 
         return {

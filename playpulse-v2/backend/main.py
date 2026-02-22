@@ -112,6 +112,31 @@ class VectorSearchReq(BaseModel):
 #   PROJECT ENDPOINTS
 # ────────────────────────────────────────────────────────────
 
+@app.get("/v1/projects")
+async def list_projects():
+    """List all projects (debug/discovery)."""
+    return [
+        {"id": p["id"], "name": p["name"], "created_at": p.get("created_at")}
+        for p in projects.values()
+    ]
+
+
+@app.get("/v1/sessions")
+async def list_sessions():
+    """List all sessions (debug/discovery)."""
+    return [
+        {"id": s["id"], "project_id": s["project_id"], "tester": s.get("tester_name", ""), "status": s.get("status", "unknown")}
+        for s in sessions.values()
+    ]
+
+
+@app.delete("/v1/projects/{project_id}/data")
+async def delete_project_data(project_id: str):
+    """Delete all Snowflake data for a given project_id."""
+    deleted = await snowflake.delete_project_data(project_id)
+    return {"project_id": project_id, "deleted": deleted}
+
+
 @app.post("/v1/projects")
 async def create_project(body: CreateProjectReq):
     pid = str(uuid.uuid4())[:8]
@@ -367,6 +392,7 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
                  "timestamp_sec": ev.timestamp_sec}
                 for ev in result.events
             ],
+            project_id=s["project_id"],
         )
     except Exception as e:
         print(f"[chunk_bg] Error processing chunk {chunk_index} for {session_id}: {e}")
@@ -441,7 +467,7 @@ async def finalize_session(session_id: str):
     session_fused[session_id] = fused_dicts
 
     # Store in Snowflake
-    await snowflake.store_fused_rows(session_id, fused_dicts)
+    await snowflake.store_fused_rows(session_id, fused_dicts, s["project_id"])
 
     # 5. Verdicts
     verdicts = []
@@ -450,12 +476,12 @@ async def finalize_session(session_id: str):
         verdicts.append(v)
     verdict_dicts = [v.__dict__ if hasattr(v, "__dict__") else v for v in verdicts]
     session_verdicts[session_id] = verdict_dicts
-    await snowflake.store_verdicts(session_id, verdict_dicts)
+    await snowflake.store_verdicts(session_id, verdict_dicts, s["project_id"])
 
     # 6. Health score
     health = compute_playtest_health_score(verdicts)
     session_health[session_id] = health
-    await snowflake.store_health_score(session_id, health)
+    await snowflake.store_health_score(session_id, health, s["project_id"])
 
     # 7. Embeddings → VectorAI
     embeddings = []

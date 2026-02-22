@@ -63,14 +63,12 @@ class PresageClient:
             frames.append(
                 EmotionFrame(
                     timestamp_sec=round(t, 2),
-                    emotions={
-                        "frustration": round(random.uniform(0, 0.4), 3),
-                        "confusion": round(random.uniform(0, 0.3), 3),
-                        "delight": round(random.uniform(0.2, 0.7), 3),
-                        "boredom": round(random.uniform(0, 0.2), 3),
-                        "surprise": round(random.uniform(0, 0.3), 3),
-                        "engagement": round(random.uniform(0.3, 0.8), 3),
-                    },
+                    frustration=round(random.uniform(0, 0.4), 3),
+                    confusion=round(random.uniform(0, 0.3), 3),
+                    delight=round(random.uniform(0.2, 0.7), 3),
+                    boredom=round(random.uniform(0, 0.2), 3),
+                    surprise=round(random.uniform(0, 0.3), 3),
+                    engagement=round(random.uniform(0.3, 0.8), 3),
                 )
             )
             t += 0.1
