@@ -1,17 +1,12 @@
 """
-test_sphinx_cli.py
-
-Tells sphinx-cli to connect to the Snowflake data warehouse,
-run a query, and return the result as JSON in the terminal. No .ipynb saved.
-
-Run:
-    python test_sphinx_cli.py
+SphinxClient — natural language queries to Snowflake data via Sphinx AI
 """
 
 import subprocess
 import tempfile
 import os
 import json
+from typing import List, Optional
 
 from dotenv import load_dotenv
 
@@ -19,6 +14,19 @@ BACKEND_DIR = os.path.abspath(os.path.dirname(__file__))
 OUTPUTS_DIR = os.path.join(BACKEND_DIR, "outputs")
 
 load_dotenv(os.path.join(BACKEND_DIR, ".env"))
+
+
+class SphinxClient:
+    """Stub client for Sphinx AI queries - to be implemented"""
+    
+    async def query(self, question: str, project_id: str, session_ids: Optional[List[str]] = None):
+        """Execute natural language query against Snowflake data"""
+        return {
+            "success": False,
+            "error": "SphinxClient not yet implemented",
+            "question": question,
+            "project_id": project_id
+        }
 
 # SF_ACCOUNT   = os.environ.get("SNOWFLAKE_ACCOUNT")
 # SF_USER      = os.environ.get("SNOWFLAKE_USER")

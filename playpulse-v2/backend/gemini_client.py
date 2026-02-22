@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Model selection per task ──────────────────────────────────
-MODEL_CHUNK_ANALYSIS = "gemini-2.0-flash"       # runs every 15s during gameplay
+MODEL_CHUNK_ANALYSIS = "gemini-2.5-flash"       # runs every 10s during gameplay
 MODEL_OPTIMAL_ANALYSIS = "gemini-2.5-flash"      # runs once for optimal playthrough
 MODEL_INSIGHT_GENERATION = "gemini-2.5-flash"    # post-session insight generation
 
