@@ -200,7 +200,7 @@ function EmotionTimeline({ timeline }) {
       />
       {hoverRow && (
         <div className="absolute top-2 right-2 bg-black/80 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono pointer-events-none">
-          <div className="text-white/50 mb-1">t = {hoverRow.t}s · {DFA_STATES.find(s => s.id === hoverRow.state)?.label}</div>
+          <div className="text-white/70 mb-1">t = {hoverRow.t}s · {DFA_STATES.find(s => s.id === hoverRow.state)?.label}</div>
           <div className="text-red-400">Frustration {hoverRow.frustration.toFixed(2)}</div>
           <div className="text-orange-400">Confusion {hoverRow.confusion.toFixed(2)}</div>
           <div className="text-green-400">Delight {hoverRow.delight.toFixed(2)}</div>
@@ -462,9 +462,9 @@ export default function Dashboard() {
                   { label: 'Worst Segment', value: 'First Pit', sub: 'Δ 0.52 from intent', color: '#ef4444' },
                 ].map(s => (
                   <div key={s.label} className="rounded-3xl border border-white/15 p-5 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
-                    <div className="text-[10px] text-white/30 uppercase tracking-widest mb-2">{s.label}</div>
+                    <div className="text-[10px] text-white/70 uppercase tracking-widest mb-2">{s.label}</div>
                     <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>
-                    <div className="text-[10px] text-white/30 mt-1">{s.sub}</div>
+                    <div className="text-[10px] text-white/50 mt-1">{s.sub}</div>
                   </div>
                 ))}
               </div>
@@ -475,7 +475,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="font-eb-garamond text-2xl font-bold text-white">Emotion Timeline</h2>
-                  <p className="text-[10px] text-white/30 mt-0.5">All 4 Presage streams · DFA states as bands · hover for details</p>
+                  <p className="text-[10px] text-white/50 mt-0.5">All 4 Presage streams · DFA states as bands · hover for details</p>
                 </div>
               </div>
               <EmotionTimeline timeline={TIMELINE} />

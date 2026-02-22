@@ -131,7 +131,7 @@ export default function ProjectSetup() {
           <h2 className="font-eb-garamond text-2xl font-bold text-white mb-4">Game Info</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[10px] text-white/30 uppercase tracking-widest font-mono block mb-1.5">Game Name</label>
+              <label className="text-[10px] text-white/70 uppercase tracking-widest font-mono block mb-1.5">Game Name</label>
               <input
                 value={name}
                 onChange={e => setName(e.target.value)}
@@ -140,7 +140,7 @@ export default function ProjectSetup() {
               />
             </div>
             <div>
-              <label className="text-[10px] text-white/30 uppercase tracking-widest font-mono block mb-1.5">Description</label>
+              <label className="text-[10px] text-white/70 uppercase tracking-widest font-mono block mb-1.5">Description</label>
               <input
                 value={desc}
                 onChange={e => setDesc(e.target.value)}
@@ -155,7 +155,7 @@ export default function ProjectSetup() {
         <div className="space-y-3">
           <div className="flex items-baseline gap-3">
             <h2 className="font-eb-garamond text-2xl font-bold text-white">DFA State Editor</h2>
-            <span className="text-[11px] text-white/25 font-mono">{states.length} states defined</span>
+            <span className="text-[11px] text-white/75 font-mono">{states.length} states defined</span>
           </div>
 
           {states.map((s, i) => (
@@ -175,7 +175,7 @@ export default function ProjectSetup() {
                 <span className="text-sm font-semibold text-white flex-1">
                   {s.name || `State ${i + 1}`} <span className="ml-1 opacity-70">{EMOTION_ICONS[s.intended_emotion] || '🎮'}</span>
                 </span>
-                <span className="text-[10px] font-mono text-white/30 px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>{s.expected_duration_sec}s</span>
+                <span className="text-[10px] font-mono text-white/70 px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>{s.expected_duration_sec}s</span>
                 <button
                   onClick={() => removeState(i)}
                   className="text-white/20 hover:text-red-400 transition-colors text-xs font-mono px-2 py-1 rounded-lg hover:bg-red-400/10"

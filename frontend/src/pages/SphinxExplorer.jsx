@@ -160,7 +160,7 @@ export default function SphinxExplorer() {
         {!result && (
           <div className="flex flex-col items-center py-16 gap-3">
             <span className="text-6xl opacity-15">🔮</span>
-            <p className="text-xs text-white/15 font-mono tracking-widest uppercase">Enter a project ID and ask Sphinx anything</p>
+            <p className="text-xs text-white/70 font-mono tracking-widest uppercase">Enter a project ID and ask Sphinx anything</p>
           </div>
         )}
 

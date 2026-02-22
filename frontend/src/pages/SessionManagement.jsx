@@ -87,7 +87,7 @@ export default function SessionManagement() {
           {/* Select Project */}
           <div className="rounded-3xl border border-white/15 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
             <h2 className="font-eb-garamond text-xl font-bold text-white mb-4">Select Project</h2>
-            <label className="text-[10px] text-white/25 uppercase tracking-widest font-mono block mb-1.5">Project ID</label>
+            <label className="text-[10px] text-white/70 uppercase tracking-widest font-mono block mb-1.5">Project ID</label>
             <div className="flex gap-2">
               <input
                 value={projectId}
@@ -108,7 +108,7 @@ export default function SessionManagement() {
           {/* New Session */}
           <div className="rounded-3xl border border-white/15 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
             <h2 className="font-eb-garamond text-xl font-bold text-white mb-4">New Session</h2>
-            <label className="text-[10px] text-white/25 uppercase tracking-widest font-mono block mb-1.5">Tester Name</label>
+            <label className="text-[10px] text-white/70 uppercase tracking-widest font-mono block mb-1.5">Tester Name</label>
             <input
               value={testerName}
               onChange={e => setTesterName(e.target.value)}
@@ -169,13 +169,13 @@ export default function SessionManagement() {
         <div className="rounded-3xl border border-white/15 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
           <div className="flex items-baseline gap-3 mb-4">
             <h2 className="font-eb-garamond text-2xl font-bold text-white">Sessions</h2>
-            <span className="text-[11px] text-white/25 font-mono">{sessions.length} found</span>
+            <span className="text-[11px] text-white/70 font-mono">{sessions.length} found</span>
           </div>
 
           {sessions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
-              <span className="text-4xl opacity-30">🎮</span>
-              <p className="text-xs text-white/25 font-mono tracking-widest uppercase">No sessions yet — create one above</p>
+              <span className="text-4xl">🎮</span>
+              <p className="text-xs text-white/75 font-mono tracking-widest uppercase">No sessions yet — create one above</p>
             </div>
           ) : (
             <div className="space-y-2">

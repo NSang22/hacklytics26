@@ -137,9 +137,9 @@ export default function SessionReview() {
       <div className="relative z-10 max-w-5xl mx-auto px-6 pt-6 pb-2">
         <div className="flex items-center gap-3 mb-5">
           <div className="w-2 h-2 rounded-full bg-[#f59e0b] animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.9)]" />
-          <span className="text-xs text-white/50 tracking-widest uppercase font-mono">Session Review</span>
-          <span className="text-white/15 font-mono text-xs select-none">·</span>
-          <span className="text-xs text-white/20 font-mono">Deep-dive into a single playtest session</span>
+          <span className="text-xs text-white/70 tracking-widest uppercase font-mono">Session Review</span>
+          <span className="text-white/70 font-mono text-xs select-none">·</span>
+          <span className="text-xs text-white/70 font-mono">Deep-dive into a single playtest session</span>
         </div>
         <div className="h-px w-full" style={{ background: 'linear-gradient(90deg, rgba(245,158,11,0.35) 0%, rgba(255,255,255,0.05) 60%, transparent 100%)' }} />
       </div>
