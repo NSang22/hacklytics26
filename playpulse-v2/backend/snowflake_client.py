@@ -35,6 +35,7 @@ _DDL = {
     "BRONZE_GAMEPLAY_EVENTS": """
         CREATE TABLE IF NOT EXISTS BRONZE_GAMEPLAY_EVENTS (
             ingested_at       TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+            project_id        VARCHAR(64),
             session_id        VARCHAR(64)   NOT NULL,
             chunk_index       INT,
             abs_timestamp_sec FLOAT,
@@ -46,6 +47,7 @@ _DDL = {
     "SILVER_FUSED": """
         CREATE TABLE IF NOT EXISTS SILVER_FUSED (
             ingested_at        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+            project_id         VARCHAR(64),
             session_id         VARCHAR(64)   NOT NULL,
             t                  INT           NOT NULL,
             state              VARCHAR(128),
@@ -69,6 +71,7 @@ _DDL = {
     "GOLD_VERDICTS": """
         CREATE TABLE IF NOT EXISTS GOLD_VERDICTS (
             inserted_at           TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+            project_id            VARCHAR(64),
             session_id            VARCHAR(64)   NOT NULL,
             state_name            VARCHAR(128),
             intended_emotion      VARCHAR(64),
@@ -76,12 +79,13 @@ _DDL = {
             intent_delta_avg      FLOAT,
             actual_duration_sec   INT,
             dominant_emotion      VARCHAR(64),
-            raw_json              VARIANT
+            raw_json              VARCHAR(16777216)
         )
     """,
     "GOLD_HEALTH_SCORES": """
         CREATE TABLE IF NOT EXISTS GOLD_HEALTH_SCORES (
             inserted_at    TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+            project_id     VARCHAR(64),
             session_id     VARCHAR(64)   NOT NULL,
             health_score   FLOAT         NOT NULL
         )
@@ -204,13 +208,13 @@ class SnowflakeClient:
 
     # ── Convenience wrappers (called by main.py) ────────────
 
-    async def store_fused_rows(self, session_id: str, rows: List[Dict]) -> int:
+    async def store_fused_rows(self, session_id: str, rows: List[Dict], project_id: str = "") -> int:
         """Write fused 1-second timeline rows to SILVER_FUSED."""
         if not rows:
             return 0
 
         if not self._use_real():
-            tagged = [{**r, "session_id": session_id} for r in rows]
+            tagged = [{**r, "session_id": session_id, "project_id": project_id} for r in rows]
             self._mem.setdefault("silver_fused_rows", []).extend(tagged)
             logger.info(f"[snowflake][mem] SILVER_FUSED: {len(rows)} rows for {session_id}")
             return len(rows)
@@ -219,15 +223,16 @@ class SnowflakeClient:
         conn = self._get_connection()
         sql = """
             INSERT INTO SILVER_FUSED
-            (session_id, t, state, time_in_state_sec,
+            (project_id, session_id, t, state, time_in_state_sec,
              frustration, confusion, delight, boredom, surprise, engagement,
              hr, hrv_rmssd, hrv_sdnn, presage_hr, breathing_rate,
              intent_delta, dominant_emotion, data_quality)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         batch = []
         for r in rows:
             batch.append((
+                project_id,
                 session_id,
                 int(r.get("t", 0)),
                 str(r.get("state", "unknown")),
@@ -254,13 +259,13 @@ class SnowflakeClient:
             logger.error(f"[snowflake] SILVER_FUSED write failed: {exc}")
         return len(batch)
 
-    async def store_verdicts(self, session_id: str, verdicts: List[Dict]) -> int:
+    async def store_verdicts(self, session_id: str, verdicts: List[Dict], project_id: str = "") -> int:
         """Write per-state verdict cards to GOLD_VERDICTS."""
         if not verdicts:
             return 0
 
         if not self._use_real():
-            tagged = [{**v, "session_id": session_id} for v in verdicts]
+            tagged = [{**v, "session_id": session_id, "project_id": project_id} for v in verdicts]
             self._mem.setdefault("gold_verdicts", []).extend(tagged)
             logger.info(f"[snowflake][mem] GOLD_VERDICTS: {len(verdicts)} for {session_id}")
             return len(verdicts)
@@ -269,13 +274,14 @@ class SnowflakeClient:
         conn = self._get_connection()
         sql = """
             INSERT INTO GOLD_VERDICTS
-            (session_id, state_name, intended_emotion, verdict,
+            (project_id, session_id, state_name, intended_emotion, verdict,
              intent_delta_avg, actual_duration_sec, dominant_emotion, raw_json)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, PARSE_JSON(%s))
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         batch = []
         for v in verdicts:
             batch.append((
+                project_id,
                 session_id,
                 str(v.get("state_name", "")),
                 str(v.get("intended_emotion", "")),
@@ -283,7 +289,7 @@ class SnowflakeClient:
                 float(v.get("intent_delta_avg", 0)),
                 int(v.get("actual_duration_sec", 0)),
                 str(v.get("dominant_emotion", "")),
-                json.dumps(v),
+                json.dumps(v),  # JSON string stored as VARCHAR
             ))
         try:
             conn.cursor().executemany(sql, batch)
@@ -292,11 +298,11 @@ class SnowflakeClient:
             logger.error(f"[snowflake] GOLD_VERDICTS write failed: {exc}")
         return len(batch)
 
-    async def store_health_score(self, session_id: str, score: float) -> int:
+    async def store_health_score(self, session_id: str, score: float, project_id: str = "") -> int:
         """Write overall Playtest Health Score to GOLD_HEALTH_SCORES."""
         if not self._use_real():
             self._mem.setdefault("gold_health_scores", []).append(
-                {"session_id": session_id, "score": score}
+                {"session_id": session_id, "score": score, "project_id": project_id}
             )
             logger.info(f"[snowflake][mem] GOLD_HEALTH: {session_id} → {score}")
             return 1
@@ -305,8 +311,8 @@ class SnowflakeClient:
         conn = self._get_connection()
         try:
             conn.cursor().execute(
-                "INSERT INTO GOLD_HEALTH_SCORES (session_id, health_score) VALUES (%s, %s)",
-                (session_id, float(score)),
+                "INSERT INTO GOLD_HEALTH_SCORES (project_id, session_id, health_score) VALUES (%s, %s, %s)",
+                (project_id, session_id, float(score)),
             )
             logger.info(f"[snowflake] GOLD_HEALTH: {session_id} → {score}")
         except Exception as exc:
@@ -319,6 +325,7 @@ class SnowflakeClient:
         chunk_index: int,
         chunk_start_sec: float,
         events: List[Dict],
+        project_id: str = "",
     ) -> int:
         """Write detected gameplay events to BRONZE_GAMEPLAY_EVENTS."""
         if not events:
@@ -328,6 +335,7 @@ class SnowflakeClient:
             {
                 **ev,
                 "session_id": session_id,
+                "project_id": project_id,
                 "chunk_index": chunk_index,
                 "abs_timestamp_sec": chunk_start_sec + ev.get("timestamp_sec", 0),
             }
@@ -343,12 +351,13 @@ class SnowflakeClient:
         conn = self._get_connection()
         sql = """
             INSERT INTO BRONZE_GAMEPLAY_EVENTS
-            (session_id, chunk_index, abs_timestamp_sec, type, description, raw_json)
-            VALUES (%s, %s, %s, %s, %s, PARSE_JSON(%s))
+            (project_id, session_id, chunk_index, abs_timestamp_sec, type, description, raw_json)
+            VALUES (%s, %s, %s, %s, %s, %s, PARSE_JSON(%s))
         """
         batch = []
         for ev in tagged:
             batch.append((
+                project_id,
                 session_id,
                 chunk_index,
                 float(ev.get("abs_timestamp_sec", 0)),
@@ -368,8 +377,39 @@ class SnowflakeClient:
         return await self.query("gold_verdicts", {"session_id": session_id})
 
     async def get_project_sessions(self, project_id: str) -> List[Dict]:
+        """Retrieve all fused session data for a project."""
+        return await self.query("silver_fused", {"project_id": project_id})
+    
+    async def get_project_verdicts(self, project_id: str) -> List[Dict]:
+        """Retrieve all verdicts for a project."""
+        return await self.query("gold_verdicts", {"project_id": project_id})
+    
+    async def get_project_health_scores(self, project_id: str) -> List[Dict]:
         """Retrieve health scores for all sessions in a project."""
         return await self.query("gold_health_scores", {"project_id": project_id})
+
+    async def delete_project_data(self, project_id: str) -> Dict[str, int]:
+        """Delete all data for a given project_id from all tables. Returns row counts deleted."""
+        if not self._use_real():
+            logger.warning("[snowflake][mem] delete_project_data called but no real connection")
+            return {}
+
+        self._ensure_tables()
+        conn = self._get_connection()
+        deleted = {}
+        
+        tables = ["BRONZE_GAMEPLAY_EVENTS", "SILVER_FUSED", "GOLD_VERDICTS", "GOLD_HEALTH_SCORES"]
+        for table in tables:
+            try:
+                cur = conn.cursor()
+                cur.execute(f"DELETE FROM {table} WHERE project_id = %s", (project_id,))
+                deleted[table] = cur.rowcount
+                logger.info(f"[snowflake] Deleted {cur.rowcount} rows from {table} for project {project_id}")
+            except Exception as exc:
+                logger.error(f"[snowflake] delete from {table} failed: {exc}")
+                deleted[table] = 0
+        
+        return deleted
 
     async def run_query(self, sql: str, params: tuple = ()) -> List[Dict]:
         """Run a raw SQL query against Snowflake. Used by Sphinx for ad-hoc analytics."""

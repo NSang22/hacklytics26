@@ -222,8 +222,8 @@ class WatchBLE:
             if HAS_BLEAK:
                 loop.run_until_complete(self._ble_connect_and_listen())
             else:
-                # Fallback: generate simulated data
-                loop.run_until_complete(self._simulate_data())
+                print("[WatchBLE] ERROR: bleak library not installed. Install with: pip install bleak")
+                self._running = False
         except Exception as e:
             print(f"[WatchBLE] BLE loop error: {e}")
         finally:
@@ -270,8 +270,8 @@ class WatchBLE:
                 print(f"[WatchBLE] Name-scan error: {e}")
 
         if not address:
-            print(f"[WatchBLE] No HR device found, starting simulation")
-            await self._simulate_data()
+            print(f"[WatchBLE] No HR device found. Cannot start - real watch required.")
+            self._running = False
             return
 
         # Connect and subscribe
@@ -343,12 +343,16 @@ class WatchBLE:
                 rr_ms = rr_raw / 1024.0 * 1000.0  # Convert to milliseconds
                 rr_intervals.append(round(rr_ms, 1))
                 offset += 2
+        else:
+            # Apple Watch only sends RR intervals during active workouts
+            # If you're not seeing HRV data, start a workout on your watch
+            pass
 
         # Add to RR buffer for HRV calc
         for rr in rr_intervals:
             self._rr_buffer.append(rr)
 
-        # Compute HRV metrics
+        # Compute HRV metrics (will be 0.0 if no RR intervals available)
         hrv_rmssd, hrv_sdnn = self._compute_hrv()
 
         timestamp = round(time.monotonic() - self._start_time, 3)
@@ -385,57 +389,6 @@ class WatchBLE:
 
         return round(rmssd, 2), round(sdnn, 2)
 
-    async def _simulate_data(self) -> None:
-        """Generate simulated HR/HRV data when no device is available.
-
-        Provides realistic-looking data for development/demo.
-        """
-        import random
-
-        print("[WatchBLE] Running simulated HR data")
-        self.connected = True
-        self.device_name = "Simulated Watch"
-
-        base_hr = 72.0
-        base_hrv_rmssd = 42.0
-        base_hrv_sdnn = 35.0
-
-        while self._running:
-            t = time.monotonic() - self._start_time
-            timestamp = round(t, 3)
-
-            # Simulate HR with some variability
-            hr = base_hr + 10 * math.sin(t * 0.1) + random.gauss(0, 2)
-            hr = max(50, min(180, hr))
-
-            # Simulate HRV
-            hrv_rmssd = base_hrv_rmssd + 8 * math.sin(t * 0.05 + 1) + random.gauss(0, 3)
-            hrv_sdnn = base_hrv_sdnn + 5 * math.sin(t * 0.07 + 2) + random.gauss(0, 2)
-            hrv_rmssd = max(10, min(100, hrv_rmssd))
-            hrv_sdnn = max(10, min(80, hrv_sdnn))
-
-            # Simulate RR intervals from HR
-            rr_mean = 60000.0 / hr  # ms
-            rr_intervals = [round(rr_mean + random.gauss(0, 20), 1) for _ in range(1)]
-
-            reading = WatchReading(
-                timestamp_sec=timestamp,
-                heart_rate=round(hr, 1),
-                hrv_rmssd=round(hrv_rmssd, 2),
-                hrv_sdnn=round(hrv_sdnn, 2),
-                rr_intervals=rr_intervals,
-                movement_variance=round(random.uniform(0, 0.5), 3),
-            )
-
-            with self._lock:
-                self._readings.append(reading)
-
-            if self._on_reading:
-                try:
-                    self._on_reading(reading)
-                except Exception:
-                    pass
-
-            await asyncio.sleep(1.0)  # 1 Hz
-
-        self.connected = False
+    # NOTE: Simulation removed - only real Apple Watch data is used.
+    # If the watch doesn't send RR intervals (not in workout mode),
+    # HRV will be 0.0. To get HRV data, start a workout on your Apple Watch.

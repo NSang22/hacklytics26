@@ -594,8 +594,8 @@ class AuraDesktopApp:
                     labels.append(f"{prefix} {d['name']} ({d['address']}) [{rssi}dB]")
                 self._ble_devices = devices
             else:
-                labels = ["Simulated Watch (auto)"]
-                self._ble_devices = [{"address": None, "name": "Simulated Watch"}]
+                labels = ["No watch found - Connect your Apple Watch"]
+                self._ble_devices = []
 
             self.root.after(0, lambda: self._update_ble_list(labels))
 
@@ -695,16 +695,21 @@ class AuraDesktopApp:
 
             # 4. BLE — reuse if already connected, otherwise start
             if not (self.watch_ble and self.watch_ble.is_running):
-                self.watch_ble = WatchBLE()
                 device_addr = None
                 if hasattr(self, "_ble_devices") and self._ble_devices:
                     idx = self.watch_combo.current()
                     if idx >= 0 and idx < len(self._ble_devices):
                         device_addr = self._ble_devices[idx].get("address")
-                self.watch_ble.start(
-                    on_reading=self._on_watch_reading,
-                    device_address=device_addr,
-                )
+                
+                if device_addr:  # Only start if we have a real device address
+                    self.watch_ble = WatchBLE()
+                    self.watch_ble.start(
+                        on_reading=self._on_watch_reading,
+                        device_address=device_addr,
+                    )
+                else:
+                    self._log("WARNING: No Apple Watch selected - HRV data will not be collected")
+                    self._log("         To collect HRV data, scan for and select your Apple Watch")
             else:
                 self._log("Reusing existing BLE connection")
 

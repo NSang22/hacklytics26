@@ -2,14 +2,16 @@
 VectorAI client — stores and queries window embeddings via Actian VectorAI.
 
 Uses the REST API for upsert/search/delete operations.
-Falls back to in-memory cosine similarity when credentials are missing.
+Falls back to persistent JSON file when credentials are missing.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -18,16 +20,38 @@ from config import VECTORAI_URL, VECTORAI_API_KEY, VECTORAI_COLLECTION
 
 logger = logging.getLogger(__name__)
 
+_STORAGE_PATH = Path(__file__).parent / "vectorai_fallback.json"
+
 
 class VectorAIClient:
-    """Actian VectorAI REST client with in-memory fallback."""
+    """Actian VectorAI REST client with persistent JSON fallback."""
 
     def __init__(self):
-        self._store: List[Dict] = []  # in-memory fallback
         self._http: Optional[httpx.AsyncClient] = None
+        self._load_fallback()
 
     def _use_real(self) -> bool:
         return bool(VECTORAI_URL and VECTORAI_API_KEY)
+
+    def _load_fallback(self):
+        """Load embeddings from JSON file if it exists."""
+        self._store: List[Dict] = []
+        if _STORAGE_PATH.exists():
+            try:
+                with open(_STORAGE_PATH, "r") as f:
+                    self._store = json.load(f)
+                logger.info(f"[vectorai][fallback] Loaded {len(self._store)} embeddings from {_STORAGE_PATH}")
+            except Exception as exc:
+                logger.warning(f"[vectorai][fallback] Could not load {_STORAGE_PATH}: {exc}")
+
+    def _save_fallback(self):
+        """Save embeddings to JSON file."""
+        try:
+            with open(_STORAGE_PATH, "w") as f:
+                json.dump(self._store, f, indent=2)
+            logger.debug(f"[vectorai][fallback] Saved {len(self._store)} embeddings to {_STORAGE_PATH}")
+        except Exception as exc:
+            logger.error(f"[vectorai][fallback] Could not save {_STORAGE_PATH}: {exc}")
 
     def _get_http(self) -> httpx.AsyncClient:
         if self._http is None:
@@ -68,7 +92,8 @@ class VectorAIClient:
             for emb in embeddings:
                 self._store = [e for e in self._store if e["id"] != emb["id"]]
                 self._store.append(emb)
-            logger.info(f"[vectorai][mem] upserted {len(embeddings)} embeddings")
+            self._save_fallback()
+            logger.info(f"[vectorai][fallback] upserted {len(embeddings)} embeddings (saved to disk)")
             return len(embeddings)
 
         client = self._get_http()
@@ -93,16 +118,18 @@ class VectorAIClient:
             return len(points)
         except httpx.HTTPStatusError as exc:
             logger.error(f"[vectorai] Upsert HTTP error: {exc.response.status_code} {exc.response.text}")
-            # Fallback to in-memory
+            # Fallback to persistent storage
             for emb in embeddings:
                 self._store = [e for e in self._store if e["id"] != emb["id"]]
                 self._store.append(emb)
+            self._save_fallback()
             return len(embeddings)
         except Exception as exc:
             logger.error(f"[vectorai] Upsert failed: {exc}")
             for emb in embeddings:
                 self._store = [e for e in self._store if e["id"] != emb["id"]]
                 self._store.append(emb)
+            self._save_fallback()
             return len(embeddings)
 
     async def search(
@@ -145,6 +172,7 @@ class VectorAIClient:
                 e for e in self._store
                 if e.get("metadata", {}).get("session_id") != session_id
             ]
+            self._save_fallback()
             return before - len(self._store)
 
         client = self._get_http()
@@ -165,6 +193,7 @@ class VectorAIClient:
                 e for e in self._store
                 if e.get("metadata", {}).get("session_id") != session_id
             ]
+            self._save_fallback()
             return before - len(self._store)
 
     def _search_mem(

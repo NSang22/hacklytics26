@@ -19,8 +19,18 @@ if [ ! -d "$VENV" ]; then
   python3 -m venv "$VENV"
 fi
 
-PYTHON="$VENV/bin/python"
-PIP="$VENV/bin/pip"
+# Find the correct Python executable in venv
+if [ -f "$VENV/bin/python3.13" ]; then
+  PYTHON="$VENV/bin/python3.13"
+elif [ -f "$VENV/bin/python3" ]; then
+  PYTHON="$VENV/bin/python3"
+elif [ -f "$VENV/bin/python" ]; then
+  PYTHON="$VENV/bin/python"
+else
+  echo -e "${YELLOW}[warning] No python found in venv, using system python3${NC}"
+  PYTHON=$(which python3.13 || which python3)
+fi
+PIP="$PYTHON -m pip"
 
 # ── Install backend deps if needed ────────────────────
 if ! "$PYTHON" -c "import fastapi" 2>/dev/null; then
