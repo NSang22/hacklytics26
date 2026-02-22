@@ -16,7 +16,14 @@ echo ""
 # ── Ensure venv exists ────────────────────────────────
 if [ ! -d "$VENV" ]; then
   echo -e "${YELLOW}[setup] Creating Python virtual environment...${NC}"
-  python3 -m venv "$VENV"
+  # Prefer Homebrew Python 3.13 over system python3 (which may be outdated)
+  if command -v python3.13 &>/dev/null; then
+    python3.13 -m venv "$VENV"
+  elif command -v python3.11 &>/dev/null; then
+    python3.11 -m venv "$VENV"
+  else
+    python3 -m venv "$VENV"
+  fi
 fi
 
 # Find the correct Python executable in venv
