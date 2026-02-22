@@ -51,7 +51,7 @@ function FeatureCard({ icon, title, desc, delay }) {
   return (
     <div
       ref={ref}
-      className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-sm p-7 transition-all duration-700"
+      className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-[20px] p-7 transition-all duration-700"
       style={{
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(32px)',
@@ -91,8 +91,8 @@ export default function WhatIsIt() {
       </div>
 
       {/* Pipeline callout */}
-      <div className="mt-16 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm p-8 md:p-10">
-        <h3 className="text-white font-bold text-lg mb-4 tracking-tight">How it works</h3>
+      <div className="mt-16 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-[20px] p-8 md:p-10">
+        <h3 className="text-white font-bold text-lg mb-4 tracking-tight text-center">How it works</h3>
         <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-0">
           {[
             { step: '01', label: 'Capture', detail: 'Screen + webcam + watch stream into 10 s chunks' },
@@ -101,7 +101,7 @@ export default function WhatIsIt() {
             { step: '04', label: 'Verdict', detail: 'Health score + per-state PASS/WARN/FAIL + Sphinx AI' },
           ].map((s, i) => (
             <div key={s.step} className="flex-1 flex items-start gap-3 md:flex-col md:items-center md:text-center">
-              {i > 0 && (
+              {i > -1 && (
                 <div className="hidden md:block w-full h-px bg-gradient-to-r from-transparent via-white/15 to-transparent -mt-3 mb-3" />
               )}
               <span className="text-white font-mono text-xs font-bold">{s.step}</span>
