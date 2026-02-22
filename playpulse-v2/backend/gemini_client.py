@@ -2,9 +2,10 @@
 Gemini client — wraps Google's Gemini API for:
 
   1. process_chunk()            — analyse a 15-sec gameplay video chunk (gemini-2.0-flash)
-  2. analyze_optimal_playthrough() — produce the "intent" reference (gemini-2.5-flash)
-  3. generate_session_insights()   — markdown summary of one session (gemini-2.5-flash)
-  4. generate_cross_tester_insights() — aggregate comparison (gemini-2.5-flash)
+  2. process_frames()           — analyse JPEG frames inline (no file upload, faster)
+  3. analyze_optimal_playthrough() — produce the "intent" reference (gemini-2.5-flash)
+  4. generate_session_insights()   — markdown summary of one session (gemini-2.5-flash)
+  5. generate_cross_tester_insights() — aggregate comparison (gemini-2.5-flash)
 
 Uses different models per task for cost/quality tradeoff.
 STUB — returns plausible mock data so the rest of the pipeline runs
@@ -16,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
@@ -70,6 +71,58 @@ class GeminiClient:
                 print(f"[gemini] Chunk analysis error: {e}, falling back to stub")
 
         return self._stub_chunk(prompt)
+
+    # ── Frame-based analysis (gemini-2.0-flash) — inline, no upload ──
+    async def process_frames(
+        self,
+        frames: List[Tuple[bytes, float]],  # (jpeg_bytes, timestamp_sec)
+        prompt: str,
+        session_id: str = "",
+    ) -> Dict:
+        """Send JPEG frames as inline images to Gemini for DFA analysis.
+
+        Faster than video upload — no Files API polling, no codec issues.
+        Used by the desktop capture agent.
+        Falls back to stub if no API key.
+        """
+        if self._client and frames:
+            try:
+                return await self._call_gemini_frames(frames, prompt)
+            except Exception as e:
+                print(f"[gemini] Frame analysis error: {e}, falling back to stub")
+
+        return self._stub_chunk(prompt)
+
+    # ── Real Gemini call — inline JPEG frames ───────────────
+    async def _call_gemini_frames(
+        self,
+        frames: List[Tuple[bytes, float]],
+        prompt: str,
+    ) -> Dict:
+        """Build a multipart request with one Part per frame, then prompt."""
+        from google.genai import types
+
+        parts = []
+        for jpeg_bytes, ts in frames:
+            parts.append(types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"))
+            parts.append(types.Part.from_text(f"[t={ts:.1f}s]"))
+        parts.append(types.Part.from_text(prompt))
+
+        response = self._client.models.generate_content(
+            model=MODEL_CHUNK_ANALYSIS,
+            contents=parts,
+        )
+
+        text = response.text
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+        try:
+            return json.loads(text.strip())
+        except json.JSONDecodeError as e:
+            print(f"[gemini] Frame parse error: {e}")
+            return {"states_observed": [], "transitions": [], "events": [], "notes": str(e)}
 
     # ── Optimal playthrough analysis (gemini-2.5-flash) ─────
     async def analyze_optimal_playthrough(
@@ -169,7 +222,6 @@ class GeminiClient:
         self, model: str, video_bytes: bytes, prompt: str, fps: int = 2
     ) -> Dict:
         """Upload video bytes and call Gemini with prompt."""
-        import io
         import tempfile
 
         # Write video to temp file for upload

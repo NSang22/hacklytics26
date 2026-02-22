@@ -10,12 +10,16 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+
+from dotenv import load_dotenv
+load_dotenv()  # loads .env from the backend directory
 import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import json
 
 from models import (
     DFAConfig,
@@ -364,6 +368,147 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
         )
     except Exception as e:
         print(f"[chunk_bg] Error processing chunk {chunk_index} for {session_id}: {e}")
+
+
+@app.post("/v1/sessions/{session_id}/upload-frames")
+async def upload_frames(
+    session_id: str,
+    chunk_index: int = Form(...),
+    timestamps: str = Form("[]"),
+    frames: List[UploadFile] = File(...),
+):
+    """Receive JPEG frames from the desktop capture agent.
+
+    Triggers Gemini Vision processing via inline images (no file upload).
+    Drop-in complement to /upload-chunk for non-browser gameplay capture.
+    """
+    s = sessions.get(session_id)
+    if not s:
+        raise HTTPException(404, "Session not found")
+
+    ts_list: List[float] = json.loads(timestamps)
+    frame_list: List[tuple] = []
+    for i, frame_file in enumerate(frames):
+        data = await frame_file.read()
+        ts = ts_list[i] if i < len(ts_list) else i / 2.0
+        frame_list.append((data, ts))
+
+    if session_id not in session_chunks:
+        session_chunks[session_id] = {}
+    # Store a sentinel so chunk counting still works
+    session_chunks[session_id][chunk_index] = b"<frames>"
+    s["chunks_uploaded"] = len(session_chunks[session_id])
+    s["status"] = "recording"
+
+    asyncio.create_task(_process_frames_bg(session_id, chunk_index, frame_list))
+
+    return {"status": "received", "chunk_index": chunk_index, "frames_count": len(frame_list)}
+
+
+async def _process_frames_bg(session_id: str, chunk_index: int, frame_list: List[tuple]):
+    """Background task: run Gemini Vision on inline JPEG frames."""
+    try:
+        s = sessions.get(session_id)
+        if not s:
+            return
+        p = projects.get(s["project_id"])
+        if not p:
+            return
+
+        prev_context = None
+        if chunk_index > 0 and session_id in chunk_results:
+            prev_cr = chunk_results[session_id].get(chunk_index - 1)
+            if prev_cr:
+                last_obs = prev_cr.states_observed[-1] if prev_cr.states_observed else None
+                cumulative_deaths = sum(
+                    1 for i in range(chunk_index)
+                    for ev in (chunk_results[session_id].get(i) or type("", (), {"events": []})()).events
+                    if "death" in ev.label.lower()
+                )
+                prev_context = {
+                    "end_state": last_obs.state if last_obs else "unknown",
+                    "end_status": prev_cr.notes,
+                    "cumulative_deaths": cumulative_deaths,
+                }
+
+        dfa_config = p["dfa_config"]
+        context_prompt = ""
+        if prev_context:
+            context_prompt = (
+                f"\nCONTEXT FROM PREVIOUS CHUNK:\n"
+                f"Ended in state: {prev_context['end_state']}\n"
+                f"Cumulative deaths: {prev_context['cumulative_deaths']}\n"
+            )
+
+        state_desc = "\n".join(
+            f"  - {s_def.name}: {s_def.description}, visual_cues={s_def.visual_cues}"
+            for s_def in dfa_config.states
+        )
+        prompt = (
+            f"Analyze these gameplay frames (chunk #{chunk_index}).\n\n"
+            f"DFA States:\n{state_desc}\n{context_prompt}\n\n"
+            "Return JSON:\n"
+            '{"states_observed":[{"state":"<name>","confidence":0.0-1.0,"timestamp_in_chunk_sec":0.0}],'
+            '"transitions":[{"from_state":"...","to_state":"...","trigger":"...","timestamp_sec":0.0}],'
+            '"events":[{"label":"...","description":"...","timestamp_sec":0.0,"severity":"info|warning|critical"}],'
+            '"notes":"Brief context for next chunk"}'
+        )
+
+        raw = await gemini.process_frames(frame_list, prompt, session_id)
+
+        from models import ChunkResult, ChunkStateObservation, ChunkTransition, ChunkEvent
+
+        chunk_start_sec = chunk_index * s.get("chunk_duration_sec", 15.0)
+        result = ChunkResult(
+            chunk_index=chunk_index,
+            chunk_start_sec=chunk_start_sec,
+            states_observed=[
+                ChunkStateObservation(
+                    state=o.get("state", "unknown"),
+                    confidence=o.get("confidence", 0.5),
+                    timestamp_in_chunk_sec=o.get("timestamp_in_chunk_sec", 0.0),
+                )
+                for o in raw.get("states_observed", [])
+            ],
+            transitions=[
+                ChunkTransition(
+                    from_state=t.get("from_state", ""),
+                    to_state=t.get("to_state", ""),
+                    trigger=t.get("trigger", ""),
+                    timestamp_sec=t.get("timestamp_sec", 0.0),
+                )
+                for t in raw.get("transitions", [])
+            ],
+            events=[
+                ChunkEvent(
+                    label=e.get("label", ""),
+                    description=e.get("description", ""),
+                    timestamp_sec=e.get("timestamp_sec", 0.0),
+                    severity=e.get("severity", "info"),
+                )
+                for e in raw.get("events", [])
+            ],
+            notes=raw.get("notes", ""),
+        )
+
+        if session_id not in chunk_results:
+            chunk_results[session_id] = {}
+        chunk_results[session_id][chunk_index] = result
+        s["chunks_processed"] = len(chunk_results[session_id])
+
+        chunk_dur = s.get("chunk_duration_sec", 15.0)
+        await snowflake.store_gameplay_events(
+            session_id=session_id,
+            chunk_index=chunk_index,
+            chunk_start_sec=chunk_index * chunk_dur,
+            events=[
+                {"label": ev.label, "description": ev.description,
+                 "timestamp_sec": ev.timestamp_sec, "severity": ev.severity}
+                for ev in result.events
+            ],
+        )
+    except Exception as e:
+        print(f"[frames_bg] Error processing chunk {chunk_index} for {session_id}: {e}")
 
 
 @app.post("/v1/sessions/{session_id}/finalize")
