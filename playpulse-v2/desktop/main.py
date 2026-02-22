@@ -52,7 +52,8 @@ class AuraDesktopApp:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title("AURA — Desktop Capture Agent")
-        self.root.geometry("900x750")
+        self.root.geometry("1320x860")
+        self.root.minsize(1100, 700)
         self.root.configure(bg=BG)
         self.root.resizable(True, True)
 
@@ -90,257 +91,311 @@ class AuraDesktopApp:
     # ═══════════════════════════════════════════════════════
 
     def _build_ui(self) -> None:
-        # Apply custom style
+        # ── Styles ──────────────────────────────────────────
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("TFrame", background=BG)
         style.configure("TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 11))
         style.configure("TButton", font=("Segoe UI", 11, "bold"), padding=8)
-        style.configure("Header.TLabel", font=("Segoe UI", 20, "bold"), foreground=TEXT, background=BG)
-        style.configure("Sub.TLabel", font=("Segoe UI", 10), foreground=MUTED, background=BG)
+        style.configure("Header.TLabel", font=("Segoe UI", 22, "bold"), foreground=TEXT, background=BG)
+        style.configure("Sub.TLabel", font=("Segoe UI", 11), foreground=MUTED, background=BG)
         style.configure("Card.TFrame", background=BG2)
-        style.configure("Card.TLabel", background=BG2, foreground=TEXT)
-        style.configure("CardMuted.TLabel", background=BG2, foreground=MUTED, font=("Segoe UI", 9))
+        style.configure("Card.TLabel", background=BG2, foreground=TEXT, font=("Segoe UI", 11))
+        style.configure("CardMuted.TLabel", background=BG2, foreground=MUTED, font=("Segoe UI", 10))
+        style.configure("SectionTitle.TLabel", background=BG2, foreground=TEXT, font=("Segoe UI", 13, "bold"))
         style.configure("Green.TLabel", background=BG2, foreground=GREEN, font=("Segoe UI", 11, "bold"))
         style.configure("Red.TLabel", background=BG2, foreground=RED, font=("Segoe UI", 11, "bold"))
         style.configure("Blue.TLabel", background=BG2, foreground=BLUE, font=("Segoe UI", 11, "bold"))
         style.configure("Amber.TLabel", background=BG2, foreground=AMBER, font=("Segoe UI", 11, "bold"))
-        style.configure("Value.TLabel", background=BG2, foreground=TEXT, font=("Segoe UI", 16, "bold"))
+        style.configure("Value.TLabel", background=BG2, foreground=TEXT, font=("Segoe UI", 18, "bold"))
         style.configure("Big.TButton", font=("Segoe UI", 14, "bold"), padding=12)
 
-        # ── Header ──────────────────────────────────────────
-        header = ttk.Frame(self.root)
-        header.pack(fill="x", padx=20, pady=(16, 8))
+        # ── Top bar: title + status + record buttons ────────
+        topbar = ttk.Frame(self.root, style="TFrame")
+        topbar.pack(fill="x", padx=20, pady=(14, 6))
 
-        ttk.Label(header, text="🎯 AURA Desktop Agent", style="Header.TLabel").pack(side="left")
-        self.status_label = ttk.Label(header, text="● Idle", style="Sub.TLabel")
-        self.status_label.pack(side="right")
+        ttk.Label(topbar, text="🎯  AURA Desktop Agent", style="Header.TLabel").pack(side="left")
 
-        # ── Scrollable content ──────────────────────────────
-        canvas = tk.Canvas(self.root, bg=BG, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
-        self.scroll_frame = ttk.Frame(canvas)
+        # Record buttons on the right of the header bar
+        btn_right = ttk.Frame(topbar, style="TFrame")
+        btn_right.pack(side="right")
+
+        self.stop_btn = tk.Button(
+            btn_right, text="⏹  STOP", font=("Segoe UI", 13, "bold"),
+            bg=RED, fg="white", activebackground="#dc2626", relief="flat",
+            padx=20, pady=8, command=self._stop_recording, state="disabled",
+        )
+        self.stop_btn.pack(side="right", padx=(6, 0))
+
+        self.start_btn = tk.Button(
+            btn_right, text="▶  START RECORDING", font=("Segoe UI", 13, "bold"),
+            bg=GREEN, fg="white", activebackground="#16a34a", relief="flat",
+            padx=20, pady=8, command=self._start_recording,
+        )
+        self.start_btn.pack(side="right", padx=(0, 6))
+
+        self.status_label = ttk.Label(topbar, text="● Idle", style="Sub.TLabel")
+        self.status_label.pack(side="right", padx=16)
+
+        # ── Divider ─────────────────────────────────────────
+        div = tk.Frame(self.root, bg=SURFACE, height=1)
+        div.pack(fill="x", padx=0, pady=(0, 0))
+
+        # ── Scrollable body ──────────────────────────────────
+        body_outer = ttk.Frame(self.root, style="TFrame")
+        body_outer.pack(fill="both", expand=True)
+
+        self._main_canvas = tk.Canvas(body_outer, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(body_outer, orient="vertical", command=self._main_canvas.yview)
+        self._main_canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side="right", fill="y")
+        self._main_canvas.pack(side="left", fill="both", expand=True)
+
+        self.scroll_frame = ttk.Frame(self._main_canvas, style="TFrame")
+        self._canvas_win = self._main_canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
+
+        # Keep scroll_frame width in sync with canvas width
+        def _on_canvas_resize(event):
+            self._main_canvas.itemconfig(self._canvas_win, width=event.width)
+        self._main_canvas.bind("<Configure>", _on_canvas_resize)
 
         self.scroll_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            "<Configure>",
+            lambda e: self._main_canvas.configure(scrollregion=self._main_canvas.bbox("all")),
         )
-        canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
 
-        canvas.pack(side="left", fill="both", expand=True, padx=(20, 0))
-        scrollbar.pack(side="right", fill="y")
+        # Mousewheel scrolling
+        def _on_mousewheel(event):
+            self._main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self._main_canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
-        # ── Connection Card ─────────────────────────────────
-        conn_card = self._make_card(self.scroll_frame, "🔌 Backend Connection")
+        # ── Two-column layout ────────────────────────────────
+        # Left column (~440px) = controls; Right column (flex) = live data
+        self.scroll_frame.columnconfigure(0, weight=0, minsize=440)
+        self.scroll_frame.columnconfigure(1, weight=1, minsize=460)
+        self.scroll_frame.rowconfigure(0, weight=1)
+
+        left_col = ttk.Frame(self.scroll_frame, style="TFrame")
+        left_col.grid(row=0, column=0, sticky="nsew", padx=(16, 8), pady=12)
+
+        right_col = ttk.Frame(self.scroll_frame, style="TFrame")
+        right_col.grid(row=0, column=1, sticky="nsew", padx=(8, 16), pady=12)
+
+        # ════════════════════════════════════════════════════
+        # LEFT COLUMN
+        # ════════════════════════════════════════════════════
+
+        # ── Connection Card ──────────────────────────────────
+        conn_card = self._make_card(left_col, "🔌 Backend Connection")
 
         row1 = ttk.Frame(conn_card, style="Card.TFrame")
         row1.pack(fill="x", pady=4)
-        ttk.Label(row1, text="Backend URL:", style="Card.TLabel").pack(side="left")
+        ttk.Label(row1, text="Backend URL:", style="Card.TLabel", width=14).pack(side="left")
         self.url_var = tk.StringVar(value=self.backend_url)
-        url_entry = ttk.Entry(row1, textvariable=self.url_var, width=35)
-        url_entry.pack(side="left", padx=8)
+        ttk.Entry(row1, textvariable=self.url_var, width=28).pack(side="left", padx=8, fill="x", expand=True)
 
         row2 = ttk.Frame(conn_card, style="Card.TFrame")
         row2.pack(fill="x", pady=4)
-        ttk.Label(row2, text="Project ID:", style="Card.TLabel").pack(side="left")
+        ttk.Label(row2, text="Project ID:", style="Card.TLabel", width=14).pack(side="left")
         self.project_var = tk.StringVar()
-        ttk.Entry(row2, textvariable=self.project_var, width=25).pack(side="left", padx=8)
+        ttk.Entry(row2, textvariable=self.project_var, width=28).pack(side="left", padx=8, fill="x", expand=True)
 
         row3 = ttk.Frame(conn_card, style="Card.TFrame")
         row3.pack(fill="x", pady=4)
-        ttk.Label(row3, text="Tester Name:", style="Card.TLabel").pack(side="left")
+        ttk.Label(row3, text="Tester Name:", style="Card.TLabel", width=14).pack(side="left")
         self.tester_var = tk.StringVar(value="desktop_tester")
-        ttk.Entry(row3, textvariable=self.tester_var, width=25).pack(side="left", padx=8)
+        ttk.Entry(row3, textvariable=self.tester_var, width=28).pack(side="left", padx=8, fill="x", expand=True)
 
-        self.conn_status = ttk.Label(conn_card, text="Not connected", style="CardMuted.TLabel")
-        self.conn_status.pack(anchor="w", pady=4)
+        conn_btns = ttk.Frame(conn_card, style="Card.TFrame")
+        conn_btns.pack(fill="x", pady=(6, 2))
+        ttk.Button(conn_btns, text="🔍 Test Connection", command=self._test_connection).pack(side="left")
+        self.conn_status = ttk.Label(conn_btns, text="Not connected", style="CardMuted.TLabel")
+        self.conn_status.pack(side="left", padx=12)
 
-        ttk.Button(conn_card, text="🔍 Test Connection", command=self._test_connection).pack(anchor="w", pady=4)
-
-        # ── Screen Capture Card ─────────────────────────────
-        screen_card = self._make_card(self.scroll_frame, "🖥️ Screen Capture")
+        # ── Screen Capture Card ──────────────────────────────
+        screen_card = self._make_card(left_col, "🖥️ Screen Capture")
 
         fps_row = ttk.Frame(screen_card, style="Card.TFrame")
         fps_row.pack(fill="x", pady=4)
-        ttk.Label(fps_row, text="Capture FPS:", style="Card.TLabel").pack(side="left")
-
+        ttk.Label(fps_row, text="FPS:", style="Card.TLabel", width=14).pack(side="left")
         self.fps_var = tk.IntVar(value=3)
         for fps_val in [1, 2, 3]:
             ttk.Radiobutton(fps_row, text=str(fps_val), variable=self.fps_var, value=fps_val,
                             command=self._on_fps_change).pack(side="left", padx=4)
-        ttk.Label(fps_row, text="Custom:", style="Card.TLabel").pack(side="left", padx=(12, 4))
+        ttk.Label(fps_row, text="Custom:", style="Card.TLabel").pack(side="left", padx=(10, 4))
         self.custom_fps_var = tk.StringVar(value="")
-        custom_entry = ttk.Entry(fps_row, textvariable=self.custom_fps_var, width=5)
-        custom_entry.pack(side="left")
-        custom_entry.bind("<FocusIn>", lambda e: self.fps_var.set(0))
-        custom_entry.bind("<Return>", lambda e: self._on_fps_change())
+        ce = ttk.Entry(fps_row, textvariable=self.custom_fps_var, width=5)
+        ce.pack(side="left")
+        ce.bind("<FocusIn>", lambda e: self.fps_var.set(0))
+        ce.bind("<Return>", lambda e: self._on_fps_change())
 
         mon_row = ttk.Frame(screen_card, style="Card.TFrame")
         mon_row.pack(fill="x", pady=4)
-        ttk.Label(mon_row, text="Monitor:", style="Card.TLabel").pack(side="left")
+        ttk.Label(mon_row, text="Monitor:", style="Card.TLabel", width=14).pack(side="left")
         self.monitor_var = tk.IntVar(value=1)
-        self.monitor_combo = ttk.Combobox(mon_row, state="readonly", width=35)
+        self.monitor_combo = ttk.Combobox(mon_row, state="readonly", width=25)
         self.monitor_combo.pack(side="left", padx=8)
         self._refresh_monitors()
         self.monitor_combo.bind("<<ComboboxSelected>>", self._on_monitor_select)
 
         chunk_row = ttk.Frame(screen_card, style="Card.TFrame")
         chunk_row.pack(fill="x", pady=4)
-        ttk.Label(chunk_row, text="Chunk Duration:", style="Card.TLabel").pack(side="left")
+        ttk.Label(chunk_row, text="Chunk:", style="Card.TLabel", width=14).pack(side="left")
         self.chunk_dur_var = tk.IntVar(value=10)
-        ttk.Scale(chunk_row, from_=5, to=30, variable=self.chunk_dur_var, orient="horizontal", length=150).pack(side="left", padx=8)
+        ttk.Scale(chunk_row, from_=5, to=30, variable=self.chunk_dur_var,
+                  orient="horizontal", length=160).pack(side="left", padx=8)
         self.chunk_dur_label = ttk.Label(chunk_row, text="10s", style="Card.TLabel")
         self.chunk_dur_label.pack(side="left")
 
         res_row = ttk.Frame(screen_card, style="Card.TFrame")
         res_row.pack(fill="x", pady=4)
-        ttk.Label(res_row, text="Resolution:", style="Card.TLabel").pack(side="left")
+        ttk.Label(res_row, text="Resolution:", style="Card.TLabel", width=14).pack(side="left")
         self.resolution_var = tk.StringVar(value="native")
-        for label, val in [("Native", "native"), ("1280×720", "1280x720"), ("960×540", "960x540")]:
-            ttk.Radiobutton(res_row, text=label, variable=self.resolution_var, value=val,
+        for lbl, val in [("Native", "native"), ("720p", "1280x720"), ("540p", "960x540")]:
+            ttk.Radiobutton(res_row, text=lbl, variable=self.resolution_var, value=val,
                             command=self._on_resolution_change).pack(side="left", padx=4)
 
-        # Screen capture preview thumbnail
-        self.screen_preview_frame = ttk.Frame(screen_card, style="Card.TFrame")
-        self.screen_preview_frame.pack(fill="x", pady=(8, 4))
-        ttk.Label(self.screen_preview_frame, text="Latest Captured Frame:", style="CardMuted.TLabel").pack(anchor="w")
-        self.screen_canvas = tk.Canvas(self.screen_preview_frame, width=320, height=180, bg="#0a0a0a", highlightthickness=1, highlightbackground=SURFACE)
-        self.screen_canvas.pack(anchor="w", pady=4)
-        self.screen_canvas.create_text(160, 90, text="No capture yet", fill=MUTED, font=("Segoe UI", 10))
-        self._screen_photo = None  # Keep reference to prevent GC
+        # ── Camera Settings Card ─────────────────────────────
+        cam_card = self._make_card(left_col, "📷 Camera Settings")
 
-        # ── Webcam / Face Analysis Card ──────────────────
-        webcam_card = self._make_card(self.scroll_frame, "📷 Webcam + Face Analysis")
-
-        cam_row = ttk.Frame(webcam_card, style="Card.TFrame")
+        cam_row = ttk.Frame(cam_card, style="Card.TFrame")
         cam_row.pack(fill="x", pady=4)
-        ttk.Label(cam_row, text="Camera:", style="Card.TLabel").pack(side="left")
-        self.camera_combo = ttk.Combobox(cam_row, state="readonly", width=30)
+        ttk.Label(cam_row, text="Camera:", style="Card.TLabel", width=14).pack(side="left")
+        self.camera_combo = ttk.Combobox(cam_row, state="readonly", width=22)
         self.camera_combo.pack(side="left", padx=8)
         self.camera_combo.bind("<<ComboboxSelected>>", self._on_camera_change)
         ttk.Button(cam_row, text="🔄", command=self._refresh_cameras, width=3).pack(side="left")
         self._refresh_cameras()
 
-        # Live camera preview
-        cam_preview_frame = ttk.Frame(webcam_card, style="Card.TFrame")
-        cam_preview_frame.pack(fill="x", pady=(8, 4))
-        ttk.Label(cam_preview_frame, text="Live Camera Feed:", style="CardMuted.TLabel").pack(anchor="w")
-        self.cam_canvas = tk.Canvas(cam_preview_frame, width=240, height=180, bg="#0a0a0a", highlightthickness=1, highlightbackground=SURFACE)
-        self.cam_canvas.pack(anchor="w", pady=4)
-        self.cam_canvas.create_text(120, 90, text="Camera off", fill=MUTED, font=("Segoe UI", 10))
-        self._cam_photo = None  # Keep reference to prevent GC
-
-        # Gaze tracking row
-        gaze_row = ttk.Frame(webcam_card, style="Card.TFrame")
-        gaze_row.pack(fill="x", pady=4)
+        # Gaze calibration row
+        gaze_row = ttk.Frame(cam_card, style="Card.TFrame")
+        gaze_row.pack(fill="x", pady=6)
         ttk.Button(gaze_row, text="🎯 Calibrate Gaze", command=self._calibrate_gaze).pack(side="left")
         self.gaze_status = ttk.Label(gaze_row, text="Not calibrated", style="CardMuted.TLabel")
         self.gaze_status.pack(side="left", padx=12)
 
-        # Gaze indicator (mini-screen with dot)
-        gaze_vis_row = ttk.Frame(webcam_card, style="Card.TFrame")
-        gaze_vis_row.pack(fill="x", pady=4)
-        ttk.Label(gaze_vis_row, text="Gaze:", style="Card.TLabel").pack(side="left")
-        self.gaze_canvas = tk.Canvas(
-            gaze_vis_row, width=160, height=100, bg="#0a0a0a",
-            highlightthickness=1, highlightbackground=SURFACE,
-        )
-        self.gaze_canvas.pack(side="left", padx=8)
-        self.gaze_canvas.create_text(80, 50, text="—", fill=MUTED, font=("Segoe UI", 9))
-        self._gaze_photo = None
-
-        # Head pose labels
-        pose_row = ttk.Frame(webcam_card, style="Card.TFrame")
+        # Head pose row
+        pose_row = ttk.Frame(cam_card, style="Card.TFrame")
         pose_row.pack(fill="x", pady=2)
-        ttk.Label(pose_row, text="Head:", style="Card.TLabel").pack(side="left")
-        self.head_pose_label = ttk.Label(pose_row, text="P:— Y:— R:—", style="CardMuted.TLabel")
+        ttk.Label(pose_row, text="Head Pose:", style="Card.TLabel", width=14).pack(side="left")
+        self.head_pose_label = ttk.Label(pose_row, text="P:—  Y:—  R:—", style="CardMuted.TLabel")
         self.head_pose_label.pack(side="left", padx=8)
 
-        self.emotion_display = ttk.Frame(webcam_card, style="Card.TFrame")
-        self.emotion_display.pack(fill="x", pady=8)
-        self._emotion_labels = {}
-        for em in ["frustration", "confusion", "delight", "boredom", "surprise", "engagement"]:
-            row = ttk.Frame(self.emotion_display, style="Card.TFrame")
-            row.pack(fill="x", pady=1)
-            ttk.Label(row, text=f"{em.capitalize()}:", style="Card.TLabel", width=14).pack(side="left")
-            bar = tk.Canvas(row, width=200, height=14, bg=SURFACE, highlightthickness=0)
-            bar.pack(side="left", padx=4)
-            val_label = ttk.Label(row, text="—", style="Card.TLabel", width=6)
-            val_label.pack(side="left")
-            self._emotion_labels[em] = (bar, val_label)
-
-        # ── Apple Watch Card ────────────────────────────────
-        watch_card = self._make_card(self.scroll_frame, "⌚ Apple Watch BLE")
+        # ── Apple Watch Card ─────────────────────────────────
+        watch_card = self._make_card(left_col, "⌚ Apple Watch BLE")
 
         watch_row = ttk.Frame(watch_card, style="Card.TFrame")
         watch_row.pack(fill="x", pady=4)
-        ttk.Label(watch_row, text="Device:", style="Card.TLabel").pack(side="left")
-        self.watch_combo = ttk.Combobox(watch_row, state="readonly", width=30)
+        ttk.Label(watch_row, text="Device:", style="Card.TLabel", width=14).pack(side="left")
+        self.watch_combo = ttk.Combobox(watch_row, state="readonly", width=20)
         self.watch_combo.pack(side="left", padx=8)
-        ttk.Button(watch_row, text="🔍 Scan", command=self._scan_ble).pack(side="left", padx=(4, 0))
+        ttk.Button(watch_row, text="🔍", command=self._scan_ble, width=3).pack(side="left", padx=2)
         self.ble_connect_btn = ttk.Button(watch_row, text="▶ Connect", command=self._connect_ble)
-        self.ble_connect_btn.pack(side="left", padx=(4, 0))
-        self.ble_disconnect_btn = ttk.Button(watch_row, text="⏹ Disconnect", command=self._disconnect_ble, state="disabled")
-        self.ble_disconnect_btn.pack(side="left", padx=(4, 0))
+        self.ble_connect_btn.pack(side="left", padx=4)
+        self.ble_disconnect_btn = ttk.Button(watch_row, text="⏹ Disc.", command=self._disconnect_ble, state="disabled")
+        self.ble_disconnect_btn.pack(side="left", padx=2)
 
         hr_row = ttk.Frame(watch_card, style="Card.TFrame")
-        hr_row.pack(fill="x", pady=8)
-        self.hr_value = ttk.Label(hr_row, text="— BPM", style="Value.TLabel")
-        self.hr_value.pack(side="left", padx=(0, 24))
-        ttk.Label(hr_row, text="HR", style="CardMuted.TLabel").pack(side="left", padx=(0, 32))
-        self.hrv_value = ttk.Label(hr_row, text="— ms", style="Value.TLabel")
-        self.hrv_value.pack(side="left", padx=(0, 8))
-        ttk.Label(hr_row, text="HRV (RMSSD)", style="CardMuted.TLabel").pack(side="left")
+        hr_row.pack(fill="x", pady=10)
+
+        # HR block
+        hr_block = ttk.Frame(hr_row, style="Card.TFrame")
+        hr_block.pack(side="left", padx=(0, 24))
+        self.hr_value = ttk.Label(hr_block, text="—", style="Value.TLabel")
+        self.hr_value.pack()
+        ttk.Label(hr_block, text="BPM  ·  Heart Rate", style="CardMuted.TLabel").pack()
+
+        # HRV block
+        hrv_block = ttk.Frame(hr_row, style="Card.TFrame")
+        hrv_block.pack(side="left")
+        self.hrv_value = ttk.Label(hrv_block, text="—", style="Value.TLabel")
+        self.hrv_value.pack()
+        ttk.Label(hrv_block, text="ms  ·  HRV (RMSSD)", style="CardMuted.TLabel").pack()
 
         self.watch_status = ttk.Label(watch_card, text="Not connected", style="CardMuted.TLabel")
-        self.watch_status.pack(anchor="w")
+        self.watch_status.pack(anchor="w", pady=(4, 0))
 
-        # ── Upload Stats Card ───────────────────────────────
-        stats_card = self._make_card(self.scroll_frame, "📤 Upload Status")
+        # ── Upload Stats Card ────────────────────────────────
+        stats_card = self._make_card(left_col, "📤 Upload Status")
 
         stats_grid = ttk.Frame(stats_card, style="Card.TFrame")
-        stats_grid.pack(fill="x", pady=4)
+        stats_grid.pack(fill="x", pady=6)
+        stats_grid.columnconfigure((0, 1, 2), weight=1)
 
-        self.stat_chunks = ttk.Label(stats_grid, text="0", style="Value.TLabel")
-        self.stat_chunks.grid(row=0, column=0, padx=16)
-        ttk.Label(stats_grid, text="Chunks", style="CardMuted.TLabel").grid(row=1, column=0)
-
-        self.stat_emotions = ttk.Label(stats_grid, text="0", style="Value.TLabel")
-        self.stat_emotions.grid(row=0, column=1, padx=16)
-        ttk.Label(stats_grid, text="Emotions", style="CardMuted.TLabel").grid(row=1, column=1)
-
-        self.stat_watch = ttk.Label(stats_grid, text="0", style="Value.TLabel")
-        self.stat_watch.grid(row=0, column=2, padx=16)
-        ttk.Label(stats_grid, text="Watch", style="CardMuted.TLabel").grid(row=1, column=2)
+        for col, (attr, label) in enumerate([
+            ("stat_chunks", "Chunks"), ("stat_emotions", "Emotions"), ("stat_watch", "Watch"),
+        ]):
+            val_lbl = ttk.Label(stats_grid, text="0", style="Value.TLabel")
+            val_lbl.grid(row=0, column=col, pady=(0, 2))
+            setattr(self, attr, val_lbl)
+            ttk.Label(stats_grid, text=label, style="CardMuted.TLabel").grid(row=1, column=col)
 
         self.stat_session = ttk.Label(stats_card, text="Session: —", style="CardMuted.TLabel")
-        self.stat_session.pack(anchor="w", pady=4)
+        self.stat_session.pack(anchor="w", pady=(6, 0))
 
-        # ── Log Card ────────────────────────────────────────
-        log_card = self._make_card(self.scroll_frame, "📝 Activity Log")
+        # ════════════════════════════════════════════════════
+        # RIGHT COLUMN
+        # ════════════════════════════════════════════════════
+
+        # ── Live Camera Preview ──────────────────────────────
+        livecam_card = self._make_card(right_col, "📷 Live Camera Feed")
+
+        self.cam_canvas = tk.Canvas(
+            livecam_card, width=320, height=240,
+            bg="#0a0a0a", highlightthickness=1, highlightbackground=SURFACE,
+        )
+        self.cam_canvas.pack(pady=(0, 6))
+        self.cam_canvas.create_text(160, 120, text="Camera off", fill=MUTED, font=("Segoe UI", 11))
+        self._cam_photo = None
+
+        # ── Emotion Bars ─────────────────────────────────────
+        emo_card = self._make_card(right_col, "😶 Face Analysis — Emotions")
+
+        self._emotion_labels = {}
+        for em in ["engagement", "delight", "surprise", "frustration", "confusion", "boredom"]:
+            em_row = ttk.Frame(emo_card, style="Card.TFrame")
+            em_row.pack(fill="x", pady=3)
+            ttk.Label(em_row, text=f"{em.capitalize()}:", style="Card.TLabel", width=14).pack(side="left")
+            bar = tk.Canvas(em_row, height=16, bg=SURFACE, highlightthickness=0)
+            bar.pack(side="left", padx=6, fill="x", expand=True)
+            val_label = ttk.Label(em_row, text="—", style="Card.TLabel", width=6)
+            val_label.pack(side="right")
+            self._emotion_labels[em] = (bar, val_label)
+
+        # ── Gaze Visualizer ──────────────────────────────────
+        gaze_card = self._make_card(right_col, "👁️ Gaze Tracking")
+
+        gaze_inner = ttk.Frame(gaze_card, style="Card.TFrame")
+        gaze_inner.pack(fill="x")
+
+        self.gaze_canvas = tk.Canvas(
+            gaze_inner, width=200, height=130, bg="#0a0a0a",
+            highlightthickness=1, highlightbackground=SURFACE,
+        )
+        self.gaze_canvas.pack(side="left", padx=(0, 16), pady=4)
+        self.gaze_canvas.create_text(100, 65, text="—", fill=MUTED, font=("Segoe UI", 9))
+        self._gaze_photo = None
+
+        # Screen preview in gaze card (side by side with gaze)
+        screen_right = ttk.Frame(gaze_inner, style="Card.TFrame")
+        screen_right.pack(side="left", fill="both", expand=True)
+        ttk.Label(screen_right, text="Screen Preview:", style="CardMuted.TLabel").pack(anchor="w")
+        self.screen_canvas = tk.Canvas(
+            screen_right, width=320, height=130,
+            bg="#0a0a0a", highlightthickness=1, highlightbackground=SURFACE,
+        )
+        self.screen_canvas.pack(anchor="w", pady=(4, 0))
+        self.screen_canvas.create_text(160, 65, text="No capture yet", fill=MUTED, font=("Segoe UI", 10))
+        self._screen_photo = None
+
+        # ── Activity Log ─────────────────────────────────────
+        log_card = self._make_card(right_col, "📝 Activity Log")
         self.log_text = tk.Text(
-            log_card, height=6, bg=BG, fg=MUTED, font=("Courier", 10),
-            wrap="word", state="disabled", borderwidth=0,
+            log_card, height=9, bg=BG, fg=MUTED, font=("Courier New", 10),
+            wrap="word", state="disabled", borderwidth=0, insertbackground=TEXT,
         )
-        self.log_text.pack(fill="x", pady=4)
-
-        # ── CONTROL BUTTONS ─────────────────────────────────
-        btn_frame = ttk.Frame(self.root)
-        btn_frame.pack(fill="x", padx=20, pady=16)
-
-        self.start_btn = tk.Button(
-            btn_frame, text="▶  START RECORDING", font=("Segoe UI", 14, "bold"),
-            bg=GREEN, fg="white", activebackground="#16a34a", relief="flat",
-            padx=24, pady=10, command=self._start_recording,
-        )
-        self.start_btn.pack(side="left", padx=4)
-
-        self.stop_btn = tk.Button(
-            btn_frame, text="⏹  STOP", font=("Segoe UI", 14, "bold"),
-            bg=RED, fg="white", activebackground="#dc2626", relief="flat",
-            padx=24, pady=10, command=self._stop_recording, state="disabled",
-        )
-        self.stop_btn.pack(side="left", padx=4)
+        self.log_text.pack(fill="both", expand=True, pady=4)
 
     def _make_card(self, parent: ttk.Frame, title: str) -> ttk.Frame:
         """Create a styled card with title."""
@@ -508,8 +563,8 @@ class AuraDesktopApp:
             self.watch_ble.stop()
             self.watch_ble = None
         self.watch_status.configure(text="Disconnected")
-        self.hr_value.configure(text="— BPM")
-        self.hrv_value.configure(text="— ms")
+        self.hr_value.configure(text="—")
+        self.hrv_value.configure(text="—")
         self.ble_connect_btn.configure(state="normal")
         self.ble_disconnect_btn.configure(state="disabled")
         self._latest_hr = None
@@ -778,16 +833,16 @@ class AuraDesktopApp:
             # Convert BGR -> RGB, resize to fit canvas
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w = rgb.shape[:2]
-            # Fit to 240x180 maintaining aspect ratio
-            scale = min(240 / w, 180 / h)
+            # Fit to 320x240 maintaining aspect ratio
+            scale = min(320 / w, 240 / h)
             new_w, new_h = int(w * scale), int(h * scale)
             rgb = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
             img = Image.fromarray(rgb)
             self._cam_photo = ImageTk.PhotoImage(img)
             self.cam_canvas.delete("all")
             # Center in canvas
-            x_off = (240 - new_w) // 2
-            y_off = (180 - new_h) // 2
+            x_off = (320 - new_w) // 2
+            y_off = (240 - new_h) // 2
             self.cam_canvas.create_image(x_off, y_off, anchor="nw", image=self._cam_photo)
         except Exception:
             pass
@@ -806,15 +861,15 @@ class AuraDesktopApp:
         try:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w = rgb.shape[:2]
-            # Fit to 320x180 maintaining aspect ratio
-            scale = min(320 / w, 180 / h)
+            # Fit to 320x130 maintaining aspect ratio
+            scale = min(320 / w, 130 / h)
             new_w, new_h = int(w * scale), int(h * scale)
             rgb = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
             img = Image.fromarray(rgb)
             self._screen_photo = ImageTk.PhotoImage(img)
             self.screen_canvas.delete("all")
             x_off = (320 - new_w) // 2
-            y_off = (180 - new_h) // 2
+            y_off = (130 - new_h) // 2
             self.screen_canvas.create_image(x_off, y_off, anchor="nw", image=self._screen_photo)
             # Overlay actual FPS readout
             actual = self.screen_cap._actual_fps
@@ -833,10 +888,11 @@ class AuraDesktopApp:
             return
         for em, (bar, val_label) in self._emotion_labels.items():
             val = self._latest_emotion.get(em, 0.0)
+            bar_w = bar.winfo_width() or 240
             bar.delete("all")
-            width = int(val * 200)
+            filled = int(val * bar_w)
             color = self._emotion_color(em)
-            bar.create_rectangle(0, 0, width, 14, fill=color, outline="")
+            bar.create_rectangle(0, 0, filled, 16, fill=color, outline="")
             val_label.configure(text=f"{val:.2f}")
 
     def _emotion_color(self, emotion: str) -> str:
@@ -852,8 +908,8 @@ class AuraDesktopApp:
             return
         hr = self._latest_hr.get("heart_rate", 0)
         hrv = self._latest_hr.get("hrv_rmssd", 0)
-        self.hr_value.configure(text=f"{hr:.0f} BPM")
-        self.hrv_value.configure(text=f"{hrv:.1f} ms")
+        self.hr_value.configure(text=f"{hr:.0f}")
+        self.hrv_value.configure(text=f"{hrv:.1f}")
 
     def _update_gaze_display(self) -> None:
         """Update gaze indicator and head-pose labels."""
@@ -873,28 +929,28 @@ class AuraDesktopApp:
 
         self.gaze_canvas.delete("all")
         # Draw screen border
-        self.gaze_canvas.create_rectangle(2, 2, 158, 98, outline=SURFACE, width=1)
+        self.gaze_canvas.create_rectangle(2, 2, 198, 128, outline=SURFACE, width=1)
 
         if conf > 0.5 and cal.calibrated:
             # Calibrated: gaze_x/y are screen px
-            dot_x = (gx / cal.screen_w) * 156 + 2
-            dot_y = (gy / cal.screen_h) * 96 + 2
+            dot_x = (gx / cal.screen_w) * 196 + 2
+            dot_y = (gy / cal.screen_h) * 126 + 2
         else:
             # Uncalibrated: gaze_x/y are iris ratios (0-1)
-            dot_x = gx * 156 + 2
-            dot_y = gy * 96 + 2
+            dot_x = gx * 196 + 2
+            dot_y = gy * 126 + 2
 
-        dot_x = max(4, min(156, dot_x))
-        dot_y = max(4, min(96, dot_y))
+        dot_x = max(4, min(196, dot_x))
+        dot_y = max(4, min(126, dot_y))
         color = GREEN if conf > 0.5 else AMBER
         self.gaze_canvas.create_oval(
-            dot_x - 5, dot_y - 5, dot_x + 5, dot_y + 5,
+            dot_x - 6, dot_y - 6, dot_x + 6, dot_y + 6,
             fill=color, outline="",
         )
         # Label
         status = "calibrated" if cal.calibrated else "raw iris ratio"
         self.gaze_canvas.create_text(
-            80, 92, text=status, fill=MUTED, font=("Segoe UI", 7),
+            100, 122, text=status, fill=MUTED, font=("Segoe UI", 7),
         )
 
     def _calibrate_gaze(self) -> None:
