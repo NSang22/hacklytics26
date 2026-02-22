@@ -1,6 +1,0 @@
-# AURA Desktop Capture Agent dependencies
-# Install with: pip install -r capture_requirements.txt
-
-mss>=9.0.1          # screen capture
-Pillow>=10.0.0      # image resizing + JPEG encoding
-requests>=2.31.0    # HTTP upload to backend
