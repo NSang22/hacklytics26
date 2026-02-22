@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { PiStarFourBold } from 'react-icons/pi'
 
 const FAQ_DATA = [
   {
     q: 'What input data does CrashOut need?',
-    a: 'Three streams: gameplay video (screen capture at 30 FPS, chunked into 10-second segments), webcam footage processed through MediaPipe for facial affect (frustration, confusion, delight, boredom at 10 Hz), and optionally Apple Watch data for heart rate and HRV at 1 Hz. You also provide your intended emotional arc per game state before the session.',
+    a: 'Three streams: gameplay video (screen capture at 30 FPS, chunked into 10-second segments), webcam footage processed through the Presage SDK for facial affect (frustration, confusion, delight, boredom at 10 Hz), and optionally Apple Watch data for heart rate and HRV at 1 Hz. You also provide your intended emotional arc per game state before the session.',
   },
   {
     q: 'How does it detect game states without instrumenting my game?',
@@ -27,7 +29,7 @@ const FAQ_DATA = [
   },
   {
     q: 'What happens if the Apple Watch isn\'t available?',
-    a: 'CrashOut degrades gracefully. The core pipeline — Gemini Vision DFA extraction plus MediaPipe facial affect — works without any wearable. Apple Watch HR/HRV is an additive physiological signal; if it\'s missing, emotion + video data still produce full verdicts and health scores.',
+    a: 'CrashOut degrades gracefully. The core pipeline — Gemini Vision DFA extraction plus Presage facial affect — works without any wearable. Apple Watch HR/HRV is an additive physiological signal; if it\'s missing, emotion + video data still produce full verdicts and health scores.',
   },
   {
     q: 'How is this different from just watching playtest recordings?',
@@ -89,6 +91,8 @@ function FaqItem({ q, a, index }) {
 }
 
 export default function FAQ() {
+  const navigate = useNavigate()
+
   return (
     <section id="faq" className="relative z-10 w-full max-w-4xl mx-auto px-6 pt-40 pb-32">
 
@@ -110,13 +114,21 @@ export default function FAQ() {
       {/* Bottom CTA */}
       <div className="mt-20 text-center">
         <p className="text-white text-sm mb-4">Ready to find out what players really feel?</p>
-        <a
-          href="/dashboard/setup"
-          className="inline-flex items-center gap-3 rounded-xl bg-blue-600 px-8 py-4 text-white font-bold text-sm tracking-wide
-                     hover:bg-blue-500 transition-colors shadow-[0_8px_24px_rgba(59,130,246,0.3)]"
+        <button
+          onClick={() => navigate('/dashboard/setup')}
+          className="group hover:cursor-pointer relative inline-flex items-center gap-4 overflow-hidden rounded-2xl bg-[#196eff] px-10 py-5 font-semibold transition-all duration-300
+                      shadow-[0_12px_30px_rgba(0,0,0,0.35)]
+                      hover:scale-[1.04] hover:shadow-[0_18px_45px_rgba(0,0,0,0.45)]
+                      active:scale-[0.98]"
         >
-          Start Your First Playtest →
-        </a>
+          <span className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/25 to-transparent opacity-70" />
+          <span className="pointer-events-none absolute inset-0 rounded-2xl shadow-[inset_0_-8px_14px_rgba(0,0,0,0.25)]" />
+          <span className="pointer-events-none absolute inset-0 rounded-2xl">
+            <span className="absolute inset-y-0 -left-1/3 w-full shimmer bg-gradient-to-r from-transparent via-white/55 to-transparent opacity-60" />
+          </span>
+          <PiStarFourBold className="relative w-7 h-7 text-white transition-transform duration-500 group-hover:rotate-180" />
+          <span className="relative text-lg text-white tracking-tight">Start Your First Playtest</span>
+        </button>
       </div>
     </section>
   )
