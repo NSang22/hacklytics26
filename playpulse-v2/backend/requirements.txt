@@ -4,3 +4,5 @@ websockets>=12.0
 pydantic>=2.5.0
 python-dotenv>=1.0.0
 python-multipart>=0.0.6
+google-genai>=0.1.0
+openai>=1.0.0

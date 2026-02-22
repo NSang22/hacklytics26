@@ -29,6 +29,7 @@ class DFAState(BaseModel):
 class DFATransitionDef(BaseModel):
     from_state: str
     to_state: str
+    trigger: str = ""
 
 
 class DFAConfig(BaseModel):
