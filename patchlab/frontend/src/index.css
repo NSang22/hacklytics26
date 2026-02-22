@@ -1,0 +1,2 @@
+/* Reset — PatchLab uses App.css for all styling */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

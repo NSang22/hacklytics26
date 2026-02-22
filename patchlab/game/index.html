@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PatchLab — Demo Game</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: 'Segoe UI', sans-serif; color: #fff; }
+  #hud { width: 800px; display: flex; justify-content: space-between; padding: 8px 12px; background: #222; border-radius: 8px 8px 0 0; font-size: 14px; }
+  #hud span { opacity: 0.8; }
+  canvas { border: 2px solid #333; display: block; }
+  #controls { width: 800px; padding: 12px; background: #222; border-radius: 0 0 8px 8px; text-align: center; font-size: 13px; opacity: 0.7; }
+  #webcam-preview { position: fixed; bottom: 16px; right: 16px; width: 160px; height: 120px; border: 2px solid #555; border-radius: 8px; object-fit: cover; }
+  #start-screen { position: absolute; z-index: 10; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  #start-screen button { padding: 14px 36px; font-size: 18px; background: #4e7cff; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+  #start-screen button:hover { background: #3960d0; }
+  .recording-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f44; margin-right: 6px; animation: blink 1s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+</style>
+</head>
+<body>
+
+<div id="start-screen">
+  <h1>PatchLab Demo Game</h1>
+  <p>5 DFA States &middot; 2-3 minutes &middot; Arrow keys / WASD</p>
+  <button id="btn-start">Start Playtest</button>
+  <p style="font-size:12px;opacity:0.5">Camera + screen recording will begin</p>
+</div>
+
+<div id="hud" style="display:none">
+  <span id="hud-state">State: —</span>
+  <span id="hud-timer">Time: 0s</span>
+  <span id="hud-deaths">Deaths: 0</span>
+  <span id="hud-rec"><span class="recording-dot"></span>REC</span>
+</div>
+<canvas id="game" width="800" height="600" style="display:none"></canvas>
+<div id="controls" style="display:none">Arrow keys / WASD to move</div>
+<video id="webcam-preview" autoplay muted playsinline style="display:none"></video>
+
+<script src="chunked-recorder.js"></script>
+<script>
+// ── CONFIG ─────────────────────────────────────────────
+const API = window.location.origin.replace(/:\d+$/, '') + ':8000';
+const params = new URLSearchParams(window.location.search);
+let SESSION_ID = params.get('session') || '';
+let PROJECT_ID = params.get('project') || '';
+
+// ── CANVAS ─────────────────────────────────────────────
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 600;
+
+// ── GAME STATE ─────────────────────────────────────────
+const STATES = ['tutorial', 'puzzle_room', 'surprise_event', 'gauntlet', 'victory'];
+let currentState = 0;
+let gameRunning = false;
+let startTime = 0;
+let deaths = 0;
+
+// Player
+let px = 100, py = 300, pSize = 24, pSpeed = 3.5;
+let keys = {};
+
+// Per-state data
+let keyCollected = false;
+let hiddenPathFound = false;
+let surpriseTimer = 0;
+let gauntletObstacles = [];
+let particles = [];
+
+// ── INPUT ──────────────────────────────────────────────
+document.addEventListener('keydown', e => { keys[e.key] = true; keys[e.code] = true; });
+document.addEventListener('keyup', e => { keys[e.key] = false; keys[e.code] = false; });
+
+function movePlayer() {
+  let dx = 0, dy = 0;
+  if (keys['ArrowUp'] || keys['KeyW'] || keys['w']) dy = -pSpeed;
+  if (keys['ArrowDown'] || keys['KeyS'] || keys['s']) dy = pSpeed;
+  if (keys['ArrowLeft'] || keys['KeyA'] || keys['a']) dx = -pSpeed;
+  if (keys['ArrowRight'] || keys['KeyD'] || keys['d']) dx = pSpeed;
+  // Diagonal normalisation
+  if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  const nx = px + dx, ny = py + dy;
+  // Bounds
+  if (nx > pSize/2 && nx < W - pSize/2) px = nx;
+  if (ny > pSize/2 && ny < H - pSize/2) py = ny;
+}
+
+// ── STATE: TUTORIAL ────────────────────────────────────
+let tutKey = { x: 600, y: 150, r: 14 };
+let tutDoor = { x: 720, y: 480, w: 60, h: 80 };
+
+function updateTutorial() {
+  movePlayer();
+  // Key pickup
+  if (!keyCollected) {
+    const d = Math.hypot(px - tutKey.x, py - tutKey.y);
+    if (d < pSize/2 + tutKey.r) keyCollected = true;
+  }
+  // Door
+  if (keyCollected) {
+    if (px > tutDoor.x && py > tutDoor.y && py < tutDoor.y + tutDoor.h) {
+      transitionTo(1);
+    }
+  }
+}
+
+function drawTutorial() {
+  ctx.fillStyle = '#1a3a5c';
+  ctx.fillRect(0, 0, W, H);
+  // Floor pattern
+  ctx.strokeStyle = '#224a6c'; ctx.lineWidth = 1;
+  for (let i = 0; i < W; i += 40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,H); ctx.stroke(); }
+  for (let j = 0; j < H; j += 40) { ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(W,j); ctx.stroke(); }
+  // Key
+  if (!keyCollected) {
+    ctx.fillStyle = '#ffd700'; ctx.beginPath(); ctx.arc(tutKey.x, tutKey.y, tutKey.r, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('KEY', tutKey.x, tutKey.y + 4);
+  }
+  // Door
+  ctx.fillStyle = keyCollected ? '#4a2' : '#654';
+  ctx.fillRect(tutDoor.x, tutDoor.y, tutDoor.w, tutDoor.h);
+  ctx.fillStyle = '#fff'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(keyCollected ? 'EXIT →' : 'LOCKED', tutDoor.x + tutDoor.w/2, tutDoor.y + tutDoor.h/2 + 4);
+  // Instructions
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '16px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('Tutorial: Pick up the key, then exit through the door →', 20, 30);
+}
+
+// ── STATE: PUZZLE ROOM ─────────────────────────────────
+const puzzleWalls = [
+  {x:0,y:0,w:W,h:20}, {x:0,y:H-20,w:W,h:20}, {x:0,y:0,w:20,h:H}, {x:W-20,y:0,w:20,h:H},
+  {x:200,y:20,w:20,h:350}, {x:400,y:230,w:20,h:370}, {x:550,y:20,w:20,h:300},
+  // Hidden path: wall segment at x=400, y=100-230 — WALKABLE (not in array)
+  {x:400,y:20,w:20,h:80},  // top part of wall (solid)
+];
+const hiddenPassage = {x:400, y:100, w:20, h:130}; // the gap
+const puzzleExit = {x:740, y:500, w:40, h:60};
+
+function rectCollide(ax, ay, aw, ah, bx, by, bw, bh) {
+  return ax < bx+bw && ax+aw > bx && ay < by+bh && ay+ah > by;
+}
+
+function updatePuzzle() {
+  const oldX = px, oldY = py;
+  movePlayer();
+  // Wall collision
+  for (const w of puzzleWalls) {
+    if (rectCollide(px-pSize/2, py-pSize/2, pSize, pSize, w.x, w.y, w.w, w.h)) {
+      px = oldX; py = oldY; break;
+    }
+  }
+  // Detect hidden path traversal
+  if (rectCollide(px-pSize/2, py-pSize/2, pSize, pSize, hiddenPassage.x, hiddenPassage.y, hiddenPassage.w, hiddenPassage.h)) {
+    hiddenPathFound = true;
+  }
+  // Exit
+  if (rectCollide(px-pSize/2, py-pSize/2, pSize, pSize, puzzleExit.x, puzzleExit.y, puzzleExit.w, puzzleExit.h)) {
+    transitionTo(2);
+  }
+}
+
+function drawPuzzle() {
+  ctx.fillStyle = '#0a2a1a';
+  ctx.fillRect(0, 0, W, H);
+  // Walls
+  ctx.fillStyle = '#2a4a2a';
+  for (const w of puzzleWalls) ctx.fillRect(w.x, w.y, w.w, w.h);
+  // Hidden passage hint (very subtle)
+  ctx.fillStyle = '#1a3a1a'; // slightly different shade
+  ctx.fillRect(hiddenPassage.x, hiddenPassage.y, hiddenPassage.w, hiddenPassage.h);
+  // Exit
+  ctx.fillStyle = '#4a2'; ctx.fillRect(puzzleExit.x, puzzleExit.y, puzzleExit.w, puzzleExit.h);
+  ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('EXIT', puzzleExit.x+20, puzzleExit.y+35);
+  // Hint text
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('Puzzle Room: Find the hidden path...', 30, 560);
+}
+
+// ── STATE: SURPRISE EVENT ──────────────────────────────
+let surpriseEnemies = [];
+let screenShake = 0;
+
+function initSurprise() {
+  surpriseTimer = 0;
+  screenShake = 15;
+  surpriseEnemies = [];
+  for (let i = 0; i < 8; i++) {
+    surpriseEnemies.push({
+      x: Math.random() * (W-100) + 50,
+      y: Math.random() * (H-100) + 50,
+      vx: (Math.random() - 0.5) * 4,
+      vy: (Math.random() - 0.5) * 4,
+      r: 18 + Math.random()*10,
+    });
+  }
+}
+
+function updateSurprise() {
+  surpriseTimer++;
+  if (screenShake > 0) screenShake -= 0.3;
+  movePlayer();
+  // Move enemies
+  for (const e of surpriseEnemies) {
+    e.x += e.vx; e.y += e.vy;
+    if (e.x < e.r || e.x > W-e.r) e.vx *= -1;
+    if (e.y < e.r || e.y > H-e.r) e.vy *= -1;
+  }
+  // Auto advance after ~6 seconds (360 frames)
+  if (surpriseTimer > 360) transitionTo(3);
+}
+
+function drawSurprise() {
+  const sx = screenShake > 0 ? (Math.random()-0.5)*screenShake : 0;
+  const sy = screenShake > 0 ? (Math.random()-0.5)*screenShake : 0;
+  ctx.save(); ctx.translate(sx, sy);
+  // Flashing red background
+  const flash = Math.sin(surpriseTimer * 0.15) * 30;
+  ctx.fillStyle = `rgb(${120+flash}, 20, 20)`;
+  ctx.fillRect(0, 0, W, H);
+  // Enemies
+  ctx.fillStyle = '#ff3333';
+  for (const e of surpriseEnemies) {
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(e.x-5, e.y-4, 4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(e.x+5, e.y-4, 4, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(e.x-4, e.y-4, 2, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(e.x+6, e.y-4, 2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#ff3333';
+  }
+  // Alert text
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 28px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('⚠ SURPRISE EVENT ⚠', W/2, 50);
+  ctx.font = '14px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText('Survive! Passing through automatically...', W/2, H-30);
+  ctx.restore();
+}
+
+// ── STATE: GAUNTLET ────────────────────────────────────
+let gauntletSpawnX = 60;
+let gauntletGoal = {x:740, y:280, w:40, h:60};
+
+function initGauntlet() {
+  gauntletObstacles = [];
+  // 6 moving obstacles
+  for (let i = 0; i < 6; i++) {
+    gauntletObstacles.push({
+      x: 180 + i * 95,
+      y: 100 + (i % 2 === 0 ? 0 : 200),
+      w: 30, h: 120,
+      vy: (i % 2 === 0 ? 2.5 : -2.5),
+    });
+  }
+  px = gauntletSpawnX; py = 300;
+}
+
+function updateGauntlet() {
+  const oldX = px, oldY = py;
+  movePlayer();
+  // Move obstacles
+  for (const o of gauntletObstacles) {
+    o.y += o.vy;
+    if (o.y < 20 || o.y + o.h > H - 20) o.vy *= -1;
+  }
+  // Collision with obstacles → death
+  for (const o of gauntletObstacles) {
+    if (rectCollide(px-pSize/2, py-pSize/2, pSize, pSize, o.x, o.y, o.w, o.h)) {
+      deaths++;
+      px = gauntletSpawnX; py = 300;
+      return;
+    }
+  }
+  // Bounds
+  if (py < 20 || py > H-20) { deaths++; px = gauntletSpawnX; py = 300; return; }
+  // Goal
+  if (rectCollide(px-pSize/2, py-pSize/2, pSize, pSize, gauntletGoal.x, gauntletGoal.y, gauntletGoal.w, gauntletGoal.h)) {
+    transitionTo(4);
+  }
+}
+
+function drawGauntlet() {
+  ctx.fillStyle = '#1a1020';
+  ctx.fillRect(0, 0, W, H);
+  // Top/bottom borders
+  ctx.fillStyle = '#d44'; ctx.fillRect(0, 0, W, 20); ctx.fillRect(0, H-20, W, 20);
+  // Obstacles
+  ctx.fillStyle = '#c33';
+  for (const o of gauntletObstacles) ctx.fillRect(o.x, o.y, o.w, o.h);
+  // Goal
+  ctx.fillStyle = '#4a2'; ctx.fillRect(gauntletGoal.x, gauntletGoal.y, gauntletGoal.w, gauntletGoal.h);
+  ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('GOAL', gauntletGoal.x+20, gauntletGoal.y+35);
+  // Spawn marker
+  ctx.fillStyle = 'rgba(100,200,255,0.3)'; ctx.fillRect(gauntletSpawnX-20, 250, 40, 100);
+  // Text
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('Gauntlet: Dodge the obstacles! Death resets to start.', 30, H-30);
+}
+
+// ── STATE: VICTORY ─────────────────────────────────────
+let victoryTimer = 0;
+
+function updateVictory() {
+  victoryTimer++;
+  // Spawn particles
+  if (victoryTimer % 3 === 0) {
+    particles.push({
+      x: Math.random()*W, y: H,
+      vx: (Math.random()-0.5)*3, vy: -2 - Math.random()*4,
+      r: 3+Math.random()*5,
+      color: ['#ff0','#0ff','#f0f','#0f0','#f90'][Math.floor(Math.random()*5)],
+      life: 80 + Math.random()*40,
+    });
+  }
+  particles = particles.filter(p => { p.x += p.vx; p.y += p.vy; p.life--; return p.life > 0; });
+}
+
+function drawVictory() {
+  ctx.fillStyle = '#104040';
+  ctx.fillRect(0, 0, W, H);
+  // Particles
+  for (const p of particles) {
+    ctx.globalAlpha = p.life / 120;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // Text
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 56px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('🎉 YOU WIN! 🎉', W/2, 220);
+  ctx.fillStyle = '#fff'; ctx.font = '24px sans-serif';
+  ctx.fillText(`Deaths: ${deaths}`, W/2, 290);
+  ctx.font = '18px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText('Session complete — data is being processed', W/2, 350);
+  // Auto-end after 8s
+  if (victoryTimer > 480) endGame();
+}
+
+// ── TRANSITIONS ────────────────────────────────────────
+function transitionTo(stateIdx) {
+  currentState = stateIdx;
+  // Reset player position for new state
+  switch (stateIdx) {
+    case 0: px = 100; py = 300; keyCollected = false; break;
+    case 1: px = 50; py = 300; hiddenPathFound = false; break;
+    case 2: initSurprise(); break;
+    case 3: initGauntlet(); break;
+    case 4: victoryTimer = 0; particles = []; break;
+  }
+}
+
+// ── DRAW PLAYER ────────────────────────────────────────
+function drawPlayer() {
+  ctx.fillStyle = '#4ecaff';
+  ctx.fillRect(px - pSize/2, py - pSize/2, pSize, pSize);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+  ctx.strokeRect(px - pSize/2, py - pSize/2, pSize, pSize);
+}
+
+// ── GAME LOOP ──────────────────────────────────────────
+function gameLoop() {
+  if (!gameRunning) return;
+  // Update
+  switch (currentState) {
+    case 0: updateTutorial(); break;
+    case 1: updatePuzzle(); break;
+    case 2: updateSurprise(); break;
+    case 3: updateGauntlet(); break;
+    case 4: updateVictory(); break;
+  }
+  // Draw
+  switch (currentState) {
+    case 0: drawTutorial(); break;
+    case 1: drawPuzzle(); break;
+    case 2: drawSurprise(); break;
+    case 3: drawGauntlet(); break;
+    case 4: drawVictory(); break;
+  }
+  if (currentState < 4) drawPlayer();
+  // HUD
+  document.getElementById('hud-state').textContent = `State: ${STATES[currentState]}`;
+  document.getElementById('hud-timer').textContent = `Time: ${Math.floor((Date.now()-startTime)/1000)}s`;
+  document.getElementById('hud-deaths').textContent = `Deaths: ${deaths}`;
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ── RECORDING ──────────────────────────────────────────
+let gameRecorder = null;
+let webcamRecorder = null;
+let webcamChunks = [];
+
+async function startRecording() {
+  // Webcam
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    const preview = document.getElementById('webcam-preview');
+    preview.srcObject = stream;
+    preview.style.display = 'block';
+    webcamRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    webcamChunks = [];
+    webcamRecorder.ondataavailable = e => { if (e.data.size > 0) webcamChunks.push(e.data); };
+    webcamRecorder.start(1000);
+  } catch (e) {
+    console.warn('Webcam not available:', e);
+  }
+  // Game screen chunks
+  if (SESSION_ID) {
+    gameRecorder = new ChunkedGameRecorder(canvas, SESSION_ID, API);
+    gameRecorder.start();
+  }
+}
+
+async function stopRecording() {
+  if (gameRecorder) gameRecorder.stop();
+  if (webcamRecorder && webcamRecorder.state === 'recording') {
+    webcamRecorder.stop();
+    // Wait a moment for final data
+    await new Promise(r => setTimeout(r, 500));
+    if (webcamChunks.length && SESSION_ID) {
+      const blob = new Blob(webcamChunks, { type: 'video/webm' });
+      const fd = new FormData();
+      fd.append('file', blob, 'face.webm');
+      fetch(`${API}/v1/sessions/${SESSION_ID}/upload-face-video`, { method: 'POST', body: fd })
+        .then(r => r.json()).then(d => console.log('Face video uploaded:', d))
+        .catch(e => console.error('Face video upload failed:', e));
+    }
+  }
+}
+
+// ── START / END ────────────────────────────────────────
+async function startGame() {
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('hud').style.display = 'flex';
+  canvas.style.display = 'block';
+  document.getElementById('controls').style.display = 'block';
+
+  // Create session if needed
+  if (!SESSION_ID && PROJECT_ID) {
+    try {
+      const resp = await fetch(`${API}/v1/projects/${PROJECT_ID}/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tester_name: 'demo_player' }),
+      });
+      const data = await resp.json();
+      SESSION_ID = data.session_id;
+    } catch (e) { console.warn('Could not create session:', e); }
+  }
+
+  await startRecording();
+  startTime = Date.now();
+  gameRunning = true;
+  transitionTo(0);
+  gameLoop();
+}
+
+async function endGame() {
+  if (!gameRunning) return;
+  gameRunning = false;
+  await stopRecording();
+  // Finalize session
+  if (SESSION_ID) {
+    fetch(`${API}/v1/sessions/${SESSION_ID}/finalize`, { method: 'POST' })
+      .then(r => r.json()).then(d => console.log('Session finalized:', d))
+      .catch(e => console.error('Finalize failed:', e));
+  }
+}
+
+document.getElementById('btn-start').addEventListener('click', startGame);
+</script>
+</body>
+</html>
