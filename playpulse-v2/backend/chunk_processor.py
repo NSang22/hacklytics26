@@ -51,13 +51,90 @@ RETRY_DELAY_SEC = 1.5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Frame extraction
+# Frame extraction and gaze overlay
 # ─────────────────────────────────────────────────────────────────────────────
 
-def extract_frames(video_bytes: bytes, fps: int = CHUNK_FPS) -> List[bytes]:
+def _overlay_gaze_marker(
+    frame: Any,  # numpy array (OpenCV BGR image)
+    gaze_data: List[Dict],
+    frame_time: float,
+) -> Any:
+    """
+    Draw a visual gaze marker on the frame at the player's gaze position.
+
+    Finds the emotion frame closest to frame_time and draws a semi-transparent
+    circle + crosshair at (gaze_x, gaze_y) coordinates.
+
+    Args:
+        frame: OpenCV BGR image (numpy array)
+        gaze_data: List of emotion frames with gaze_x, gaze_y, timestamp_sec
+        frame_time: Timestamp of this frame in seconds
+
+    Returns:
+        Modified frame with gaze overlay
+    """
+    if not gaze_data:
+        return frame
+
+    # Find nearest gaze reading by timestamp
+    closest = min(
+        gaze_data,
+        key=lambda g: abs(g.get("timestamp_sec", 0.0) - frame_time)
+    )
+
+    gaze_x = closest.get("gaze_x", 0.5)
+    gaze_y = closest.get("gaze_y", 0.5)
+    confidence = closest.get("gaze_confidence", 0.0)
+
+    # Skip if low confidence or invalid coordinates
+    if confidence < 0.3 or not (0.0 <= gaze_x <= 1.0 and 0.0 <= gaze_y <= 1.0):
+        return frame
+
+    h, w = frame.shape[:2]
+    px = int(gaze_x * w)
+    py = int(gaze_y * h)
+
+    # Create overlay for semi-transparency
+    overlay = frame.copy()
+
+    # Draw outer circle (attention radius)
+    radius = int(min(w, h) * 0.04)  # 4% of smaller dimension
+    cv2.circle(overlay, (px, py), radius, (0, 255, 255), 2)  # Yellow circle
+
+    # Draw crosshair
+    cross_len = radius // 2
+    cv2.line(overlay, (px - cross_len, py), (px + cross_len, py), (0, 255, 255), 2)
+    cv2.line(overlay, (px, py - cross_len), (px, py + cross_len), (0, 255, 255), 2)
+
+    # Draw center dot
+    cv2.circle(overlay, (px, py), 3, (0, 0, 255), -1)  # Red center dot
+
+    # Blend overlay with original (70% overlay, 30% original)
+    alpha = 0.7
+    frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+    return frame
+
+
+
+def extract_frames(
+    video_bytes: bytes,
+    fps: int = CHUNK_FPS,
+    gaze_data: Optional[List[Dict]] = None,
+    chunk_start_sec: float = 0.0,
+) -> List[bytes]:
     """
     Decode a video chunk (any format OpenCV supports: .mp4, .webm, etc.)
     and return a list of JPEG-encoded frames sampled at `fps` frames/sec.
+
+    If gaze_data is provided, overlays gaze coordinates as visual markers
+    on each frame, showing where the player was looking.
+
+    Args:
+        video_bytes: Raw video chunk data
+        fps: Target sampling rate (frames per second)
+        gaze_data: List of emotion frames with gaze_x, gaze_y, timestamp_sec
+        chunk_start_sec: Absolute session time when chunk starts
 
     Writes bytes to a temp file because OpenCV's VideoCapture needs a path.
     Cleans up the temp file afterward.
@@ -79,14 +156,21 @@ def extract_frames(video_bytes: bytes, fps: int = CHUNK_FPS) -> List[bytes]:
         frame_interval = max(1, int(round(source_fps / fps)))
 
         frame_idx = 0
+        frame_count = 0  # Count of extracted frames (not total)
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             if frame_idx % frame_interval == 0:
+                # Overlay gaze if data available
+                if gaze_data:
+                    frame_time = chunk_start_sec + (frame_count / fps)
+                    frame = _overlay_gaze_marker(frame, gaze_data, frame_time)
+                
                 ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                 if ok:
                     frames.append(buf.tobytes())
+                frame_count += 1
             frame_idx += 1
 
         cap.release()
@@ -263,6 +347,9 @@ def _build_gemini_prompt(
 
     return f"""Analyze this {CHUNK_DURATION_SEC}-second gameplay recording (chunk #{chunk_index}).
 
+NOTE: Yellow circles with crosshairs on the video show where the player was looking (gaze tracking). 
+Use this to determine if the player noticed important visual cues or was looking elsewhere.
+
 DFA STATES (use EXACTLY these names):
 {state_desc}
 {context_block}
@@ -370,6 +457,7 @@ async def process_chunk(
     previous_context: Optional[Dict] = None,
     session_id: str = "",
     gemini_client: Any = None,
+    emotion_frames: Optional[List[Dict]] = None,
 ) -> ChunkResult:
     """
     Process a single gameplay video chunk.
@@ -411,10 +499,17 @@ async def process_chunk(
         logger.warning(f"[chunk_processor] Empty video_bytes for chunk {chunk_index} — using mock")
         return _generate_mock_result(chunk_index, chunk_start_sec, dfa_config, previous_context)
 
-    # Step 1: Extract frames with OpenCV
-    frames = extract_frames(video_bytes, fps=CHUNK_FPS)
+    # Step 1: Extract frames with OpenCV (with optional gaze overlay)
+    frames = extract_frames(
+        video_bytes,
+        fps=CHUNK_FPS,
+        gaze_data=emotion_frames,
+        chunk_start_sec=chunk_start_sec,
+    )
     if not frames:
         logger.warning(f"[chunk_processor] Frame extraction yielded 0 frames for chunk {chunk_index}")
+    elif emotion_frames:
+        logger.info(f"[chunk_processor] Overlaid gaze data on {len(frames)} frames")
 
     # Step 2: Build the prompt
     prompt = _build_gemini_prompt(chunk_index, dfa_config, previous_context)

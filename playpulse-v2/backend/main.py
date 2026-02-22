@@ -8,6 +8,7 @@ Chunked gameplay analysis, three-stream fusion, verdict system.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import uuid
 import time
@@ -39,6 +40,9 @@ from gemini_client import GeminiClient
 from snowflake_client import SnowflakeClient
 from vectorai_client import VectorAIClient
 from sphinx_client import SphinxClient
+
+# ── Logging ──────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
 
 # ── Service clients ──────────────────────────────────────────
 presage = PresageClient()
@@ -111,6 +115,31 @@ class VectorSearchReq(BaseModel):
 # ────────────────────────────────────────────────────────────
 #   PROJECT ENDPOINTS
 # ────────────────────────────────────────────────────────────
+
+@app.get("/v1/projects")
+async def list_projects():
+    """List all projects (debug/discovery)."""
+    return [
+        {"id": p["id"], "name": p["name"], "created_at": p.get("created_at")}
+        for p in projects.values()
+    ]
+
+
+@app.get("/v1/sessions")
+async def list_sessions():
+    """List all sessions (debug/discovery)."""
+    return [
+        {"id": s["id"], "project_id": s["project_id"], "tester": s.get("tester_name", ""), "status": s.get("status", "unknown")}
+        for s in sessions.values()
+    ]
+
+
+@app.delete("/v1/projects/{project_id}/data")
+async def delete_project_data(project_id: str):
+    """Delete all Snowflake data for a given project_id."""
+    deleted = await snowflake.delete_project_data(project_id)
+    return {"project_id": project_id, "deleted": deleted}
+
 
 @app.post("/v1/projects")
 async def create_project(body: CreateProjectReq):
@@ -342,6 +371,17 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
                 }
 
         chunk_dur = s.get("chunk_duration_sec", 10.0)
+        
+        # Extract emotion frames for this chunk's time window (for gaze overlay)
+        chunk_end_sec = (chunk_index + 1) * chunk_dur
+        chunk_emotion_frames = []
+        if session_id in session_emotion_frames:
+            chunk_emotion_frames = [
+                f for f in session_emotion_frames[session_id]
+                if chunk_index * chunk_dur <= f.get("timestamp_sec", 0.0) < chunk_end_sec
+            ]
+            logger.info(f"[main] Chunk {chunk_index}: found {len(chunk_emotion_frames)} emotion frames for gaze overlay")
+        
         result = await cp_process_chunk(
             video_bytes=video_bytes,
             chunk_index=chunk_index,
@@ -350,6 +390,7 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
             previous_context=prev_context,
             session_id=session_id,
             gemini_client=gemini,
+            emotion_frames=chunk_emotion_frames,
         )
         if session_id not in chunk_results:
             chunk_results[session_id] = {}
@@ -367,6 +408,7 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
                  "timestamp_sec": ev.timestamp_sec}
                 for ev in result.events
             ],
+            project_id=s["project_id"],
         )
     except Exception as e:
         print(f"[chunk_bg] Error processing chunk {chunk_index} for {session_id}: {e}")
@@ -441,7 +483,7 @@ async def finalize_session(session_id: str):
     session_fused[session_id] = fused_dicts
 
     # Store in Snowflake
-    await snowflake.store_fused_rows(session_id, fused_dicts)
+    await snowflake.store_fused_rows(session_id, fused_dicts, s["project_id"])
 
     # 5. Verdicts
     verdicts = []
@@ -450,12 +492,12 @@ async def finalize_session(session_id: str):
         verdicts.append(v)
     verdict_dicts = [v.__dict__ if hasattr(v, "__dict__") else v for v in verdicts]
     session_verdicts[session_id] = verdict_dicts
-    await snowflake.store_verdicts(session_id, verdict_dicts)
+    await snowflake.store_verdicts(session_id, verdict_dicts, s["project_id"])
 
     # 6. Health score
     health = compute_playtest_health_score(verdicts)
     session_health[session_id] = health
-    await snowflake.store_health_score(session_id, health)
+    await snowflake.store_health_score(session_id, health, s["project_id"])
 
     # 7. Embeddings → VectorAI
     embeddings = []

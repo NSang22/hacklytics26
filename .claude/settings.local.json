@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(python -c:*)",
+      "Bash(python test_gemini_pipeline.py:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(taskkill:*)"
+    ]
+  }
+}

@@ -1,7 +1,7 @@
 ===============================
 AURA — Multimodal Neuro-Symbolic Playtest Engine
 Hacklytics 2026 — Entertainment Track
-===============================
+===============================:
 1. CORE PRODUCT DEFINITION
 One-Line Definition
 
