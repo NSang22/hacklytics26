@@ -1,5 +1,5 @@
 """
-PatchLab — FastAPI backend
+PlayPulse v2 — FastAPI backend
 ===============================
 All endpoints from the spec, in-memory stores for hackathon speed.
 Chunked gameplay analysis, three-stream fusion, verdict system.
@@ -35,6 +35,7 @@ from verdict import compute_verdict, compute_playtest_health_score
 from embedding import generate_window_embedding
 from chunk_processor import process_chunk as cp_process_chunk, stitch_chunk_results
 
+from presage_client import PresageClient
 from gemini_client import GeminiClient
 from snowflake_client import SnowflakeClient
 from vectorai_client import VectorAIClient
@@ -44,6 +45,7 @@ from sphinx_client import SphinxClient
 logger = logging.getLogger(__name__)
 
 # ── Service clients ──────────────────────────────────────────
+presage = PresageClient()
 gemini = GeminiClient()
 snowflake = SnowflakeClient()
 vectorai = VectorAIClient()
@@ -64,7 +66,7 @@ session_events: Dict[str, List[Dict]] = {}
 session_emotion_frames: Dict[str, List[Dict]] = {}  # desktop client emotion data
 
 # ── FastAPI app ──────────────────────────────────────────────
-app = FastAPI(title="PatchLab", version="2.0.0")
+app = FastAPI(title="PlayPulse v2", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -321,21 +323,12 @@ async def upload_face_video(session_id: str, file: UploadFile = File(...)):
 async def upload_chunk(
     session_id: str,
     chunk_index: int = Form(...),
-    chunk_start_sec: Optional[float] = Form(None),
     file: UploadFile = File(...),
 ):
-    """Receive a video chunk and trigger Gemini processing.
-    
-    chunk_start_sec: actual elapsed seconds since recording started.
-    Falls back to chunk_index * chunk_duration_sec if not provided.
-    """
+    """Receive a 15-sec .webm chunk and trigger Gemini processing."""
     s = sessions.get(session_id)
     if not s:
         raise HTTPException(404, "Session not found")
-
-    # Use actual timestamp from desktop client; fall back to computed
-    chunk_dur = s.get("chunk_duration_sec", 10.0)
-    actual_start_sec = chunk_start_sec if chunk_start_sec is not None else chunk_index * chunk_dur
 
     video_bytes = await file.read()
     if session_id not in session_chunks:
@@ -345,17 +338,16 @@ async def upload_chunk(
     s["status"] = "recording"
 
     # Fire-and-forget Gemini processing
-    asyncio.create_task(_process_chunk_bg(session_id, chunk_index, video_bytes, actual_start_sec))
+    asyncio.create_task(_process_chunk_bg(session_id, chunk_index, video_bytes))
 
     return {
         "status": "received",
         "chunk_index": chunk_index,
-        "chunk_start_sec": round(actual_start_sec, 2),
         "size_bytes": len(video_bytes),
     }
 
 
-async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: bytes, chunk_start_sec: float = 0.0):
+async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: bytes):
     """Background task: on_chunk_uploaded — run Gemini + write to Snowflake."""
     try:
         s = sessions.get(session_id)
@@ -379,21 +371,21 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
                 }
 
         chunk_dur = s.get("chunk_duration_sec", 10.0)
-        chunk_end_sec = chunk_start_sec + chunk_dur
         
         # Extract emotion frames for this chunk's time window (for gaze overlay)
+        chunk_end_sec = (chunk_index + 1) * chunk_dur
         chunk_emotion_frames = []
         if session_id in session_emotion_frames:
             chunk_emotion_frames = [
                 f for f in session_emotion_frames[session_id]
-                if chunk_start_sec <= f.get("timestamp_sec", 0.0) < chunk_end_sec
+                if chunk_index * chunk_dur <= f.get("timestamp_sec", 0.0) < chunk_end_sec
             ]
             logger.info(f"[main] Chunk {chunk_index}: found {len(chunk_emotion_frames)} emotion frames for gaze overlay")
         
         result = await cp_process_chunk(
             video_bytes=video_bytes,
             chunk_index=chunk_index,
-            chunk_start_sec=chunk_start_sec,
+            chunk_start_sec=chunk_index * chunk_dur,
             dfa_config=p["dfa_config"],
             previous_context=prev_context,
             session_id=session_id,
@@ -406,10 +398,11 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
         s["chunks_processed"] = len(chunk_results[session_id])
 
         # Write gameplay events to Snowflake bronze layer
+        chunk_dur = s.get("chunk_duration_sec", 15.0)
         await snowflake.store_gameplay_events(
             session_id=session_id,
             chunk_index=chunk_index,
-            chunk_start_sec=chunk_start_sec,
+            chunk_start_sec=chunk_index * chunk_dur,
             events=[
                 {"type": ev.type, "description": ev.description,
                  "timestamp_sec": ev.timestamp_sec}
@@ -450,20 +443,26 @@ async def finalize_session(session_id: str):
     # Store events
     session_events[session_id] = stitched.get("events", [])
 
-    # 2. MediaPipe → emotion frames (from desktop client)
+    # 2. Presage → emotion frames
+    #    Priority: desktop client live frames > face video batch > stub
     desktop_frames = session_emotion_frames.get(session_id, [])
-    emotion_frames = [
-        EmotionFrame(
-            timestamp_sec=f.get("timestamp_sec", 0),
-            frustration=f.get("frustration", 0),
-            confusion=f.get("confusion", 0),
-            delight=f.get("delight", 0),
-            boredom=f.get("boredom", 0),
-            surprise=f.get("surprise", 0),
-            engagement=f.get("engagement", 0),
-        )
-        for f in desktop_frames
-    ]
+    if desktop_frames:
+        # Use live emotion data from desktop client
+        emotion_frames = [
+            EmotionFrame(
+                timestamp_sec=f.get("timestamp_sec", 0),
+                frustration=f.get("frustration", 0),
+                confusion=f.get("confusion", 0),
+                delight=f.get("delight", 0),
+                boredom=f.get("boredom", 0),
+                surprise=f.get("surprise", 0),
+                engagement=f.get("engagement", 0),
+            )
+            for f in desktop_frames
+        ]
+    else:
+        face_bytes = session_face_video.get(session_id, b"")
+        emotion_frames = await presage.analyse_video(face_bytes, session_id)
 
     # 3. Watch data
     watch_data = session_watch_data.get(session_id, [])
@@ -668,7 +667,7 @@ async def vector_search(project_id: str, body: VectorSearchReq):
 
 @app.post("/v1/sessions/{session_id}/emotion-frames")
 async def upload_emotion_frames(session_id: str, body: EmotionFrameBatchReq):
-    """Receive a batch of emotion frames from the desktop MediaPipe client."""
+    """Receive a batch of emotion frames from the desktop Presage client."""
     s = sessions.get(session_id)
     if not s:
         raise HTTPException(404, "Session not found")
@@ -753,7 +752,7 @@ async def watch_stream(ws: WebSocket, session_id: str):
 @app.get("/")
 async def root():
     return {
-        "service": "PatchLab",
+        "service": "PlayPulse v2",
         "version": "2.0.0",
         "projects": len(projects),
         "sessions": len(sessions),

@@ -2,7 +2,7 @@
 
 ## Overview
 
-PlayPulse uses a **medallion architecture** (Bronze → Silver → Gold) to store and aggregate playtest telemetry across three sensor sources: Presage (facial emotions), Gemini (gameplay video analysis), and Apple Watch (heart rate / HRV).
+PlayPulse uses a **medallion architecture** (Bronze → Silver → Gold) to store and aggregate playtest telemetry across three sensor sources: MediaPipe (facial emotions), Gemini (gameplay video analysis), and Apple Watch (heart rate / HRV).
 
 ---
 
@@ -17,8 +17,8 @@ A tester plays the demo game for **120 seconds**. The game has 5 DFA states. Her
 
 Think of Bronze as an audit log. Data goes in and is never changed. Three tables, one per source.
 
-#### `bronze_presage_emotions`
-Presage fires ~10 readings per second. For a 120-second session that's **~1,200 rows**.
+#### `bronze_mediapipe_emotions`
+MediaPipe fires ~10 readings per second. For a 120-second session that's **~1,200 rows**.
 
 | session_id | recorded_at | frustration | confusion | delight | engagement | camera_hr |
 |---|---|---|---|---|---|---|
@@ -60,7 +60,7 @@ Apple Watch fires ~1 reading per second. For a 120-second session that's **~120 
 The temporal fusion engine reads all three Bronze tables and produces exactly **120 rows** in `silver_fused_timeline` — one per second of gameplay.
 
 How each source gets resampled:
-- **Presage** (10 readings/sec → 1/sec): the 10 readings within each second are **averaged**
+- **MediaPipe** (10 readings/sec → 1/sec): the 10 readings within each second are **averaged**
 - **Gemini** (chunk result → every second): the DFA state is **forward-filled** — if Gemini says the player entered `puzzle_room` at t=30, then every row from t=30 through t=74 gets `dfa_state = "puzzle_room"`
 - **Watch** (1/sec): already aligned, **copied directly**
 
@@ -125,7 +125,7 @@ This powers the **heatmap** (Query 1) and feeds directly into Sphinx queries.
 
 | Layer | Table | Rows per session | Written by |
 |---|---|---|---|
-| Bronze | `bronze_presage_emotions` | ~1,200 (10/sec × 120s) | Presage integration |
+| Bronze | `bronze_mediapipe_emotions` | ~1,200 (10/sec × 120s) | MediaPipe integration |
 | Bronze | `bronze_gemini_chunks` | ~8 (one per 15s chunk) | Chunk processor |
 | Bronze | `bronze_watch_biometrics` | ~120 (1/sec) | Watch WebSocket handler |
 | Silver | `silver_fused_timeline` | 120 (one per second) | Temporal fusion engine |
@@ -160,7 +160,7 @@ with SnowflakeClient() as sf:
 
 # During a session — bronze writes happen as data arrives
 with SnowflakeClient() as sf:
-    sf.insert_presage_batch(session_id, project_id, presage_readings)
+    sf.insert_emotion_batch(session_id, project_id, emotion_readings)
     sf.insert_gemini_chunk(session_id, project_id, chunk_result)
     sf.insert_watch_batch(session_id, project_id, watch_readings)
 

@@ -92,8 +92,6 @@ class EmotionFrame(BaseModel):
     boredom: float = 0.0
     surprise: float = 0.0
     engagement: float = 0.0
-    heart_rate: float = 0.0
-    breathing_rate: float = 0.0
 
 
 class WatchReading(BaseModel):
@@ -158,8 +156,6 @@ class FusedRow(BaseModel):
     boredom: float = 0.0
     surprise: float = 0.0
     engagement: float = 0.0
-    presage_hr: float = 0.0
-    breathing_rate: float = 0.0
     watch_hr: float = 0.0
     hrv_rmssd: float = 0.0
     hrv_sdnn: float = 0.0

@@ -111,7 +111,7 @@ _EMOTION_ALIASES: Dict[str, str] = {
 
 
 def _resolve_emotion_key(name: str) -> str:
-    """Map developer-friendly emotion names to the 5-key Presage vocabulary."""
+    """Map developer-friendly emotion names to the 6-key MediaPipe vocabulary."""
     key = name.lower().strip()
     if key in EMOTION_KEYS:
         return key

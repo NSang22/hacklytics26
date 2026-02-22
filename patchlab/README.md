@@ -14,7 +14,6 @@ patchlab/
 │   ├── verdict.py    # Intent vs reality comparison + health score
 │   ├── embedding.py  # 10-sec window embeddings for VectorAI
 │   ├── chunk_processor.py  # Gemini chunk orchestration + stitching
-│   ├── presage_client.py   # Presage emotion detection (stub, replaced by MediaPipe)
 │   ├── gemini_client.py    # Gemini 2.5 Flash
 │   ├── snowflake_client.py # Snowflake medallion architecture
 │   ├── vectorai_client.py  # Actian VectorAI

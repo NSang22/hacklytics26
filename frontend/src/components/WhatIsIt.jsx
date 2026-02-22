@@ -96,7 +96,7 @@ export default function WhatIsIt() {
         <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-0">
           {[
             { step: '01', label: 'Capture', detail: 'Screen + webcam + watch stream into 10 s chunks' },
-            { step: '02', label: 'Analyze', detail: 'Gemini Vision + Presage extract state & emotion' },
+            { step: '02', label: 'Analyze', detail: 'Gemini Vision + MediaPipe extract state & emotion' },
             { step: '03', label: 'Fuse', detail: 'Resample to 1 Hz, align modalities, compute intent delta' },
             { step: '04', label: 'Verdict', detail: 'Health score + per-state PASS/WARN/FAIL + Sphinx AI' },
           ].map((s, i) => (

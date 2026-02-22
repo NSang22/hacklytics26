@@ -675,7 +675,9 @@ class PatchLabDesktopApp:
                 backend_url=self.backend_url,
                 project_id=self.project_id,
             )
-            session_id = self.uploader.create_session(tester_name=tester_name)
+            session_id = self.uploader.create_session(
+                tester_name=tester_name, chunk_duration_sec=float(chunk_dur)
+            )
             if not session_id:
                 self.root.after(0, lambda: self._recording_error("Failed to create session"))
                 return
@@ -789,14 +791,14 @@ class PatchLabDesktopApp:
 
     # ── Data Callbacks ──────────────────────────────────────
 
-    def _on_screen_chunk(self, video_bytes: bytes, chunk_index: int) -> None:
-        """Called when a screen capture chunk is ready."""
+    def _on_screen_chunk(self, video_bytes: bytes, chunk_index: int, chunk_start_sec: float = 0.0) -> None:
+        """Called when a screen capture chunk is ready with its actual timestamp."""
         if self.uploader:
-            self.uploader.enqueue_chunk(video_bytes, chunk_index)
+            self.uploader.enqueue_chunk(video_bytes, chunk_index, chunk_start_sec)
             self._chunks_sent = chunk_index + 1
 
     def _on_emotion_reading(self, reading: EmotionReading) -> None:
-        """Called at ~10 Hz with Presage emotion data."""
+        """Called at ~10 Hz with MediaPipe emotion data."""
         data = reading.to_dict()
         self._latest_emotion = data
         if self.uploader:

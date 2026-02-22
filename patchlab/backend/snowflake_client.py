@@ -61,8 +61,6 @@ _DDL = {
             hr                 FLOAT,
             hrv_rmssd          FLOAT,
             hrv_sdnn           FLOAT,
-            presage_hr         FLOAT,
-            breathing_rate     FLOAT,
             intent_delta       FLOAT,
             dominant_emotion   VARCHAR(64),
             data_quality       FLOAT
@@ -225,9 +223,9 @@ class SnowflakeClient:
             INSERT INTO SILVER_FUSED
             (project_id, session_id, t, state, time_in_state_sec,
              frustration, confusion, delight, boredom, surprise, engagement,
-             hr, hrv_rmssd, hrv_sdnn, presage_hr, breathing_rate,
+             hr, hrv_rmssd, hrv_sdnn,
              intent_delta, dominant_emotion, data_quality)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         batch = []
         for r in rows:
@@ -246,8 +244,6 @@ class SnowflakeClient:
                 float(r.get("hr", 0)),
                 float(r.get("hrv_rmssd", 0)),
                 float(r.get("hrv_sdnn", 0)),
-                float(r.get("presage_hr", 0)),
-                float(r.get("breathing_rate", 0)),
                 float(r.get("intent_delta", 0)),
                 str(r.get("dominant_emotion", "unknown")),
                 float(r.get("data_quality", 1.0)),

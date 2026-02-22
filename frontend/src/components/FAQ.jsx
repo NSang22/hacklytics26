@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 const FAQ_DATA = [
   {
     q: 'What input data does CrashOut need?',
-    a: 'Three streams: gameplay video (screen capture at 30 FPS, chunked into 10-second segments), webcam footage processed through the Presage SDK for facial affect (frustration, confusion, delight, boredom at 10 Hz), and optionally Apple Watch data for heart rate and HRV at 1 Hz. You also provide your intended emotional arc per game state before the session.',
+    a: 'Three streams: gameplay video (screen capture at 30 FPS, chunked into 10-second segments), webcam footage processed through MediaPipe for facial affect (frustration, confusion, delight, boredom at 10 Hz), and optionally Apple Watch data for heart rate and HRV at 1 Hz. You also provide your intended emotional arc per game state before the session.',
   },
   {
     q: 'How does it detect game states without instrumenting my game?',
@@ -27,7 +27,7 @@ const FAQ_DATA = [
   },
   {
     q: 'What happens if the Apple Watch isn\'t available?',
-    a: 'CrashOut degrades gracefully. The core pipeline — Gemini Vision DFA extraction plus Presage facial affect — works without any wearable. Apple Watch HR/HRV is an additive physiological signal; if it\'s missing, emotion + video data still produce full verdicts and health scores.',
+    a: 'CrashOut degrades gracefully. The core pipeline — Gemini Vision DFA extraction plus MediaPipe facial affect — works without any wearable. Apple Watch HR/HRV is an additive physiological signal; if it\'s missing, emotion + video data still produce full verdicts and health scores.',
   },
   {
     q: 'How is this different from just watching playtest recordings?',

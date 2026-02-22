@@ -120,9 +120,9 @@ class ChunkUploader:
 
     # ── Public enqueue methods ──────────────────────────────
 
-    def enqueue_chunk(self, video_bytes: bytes, chunk_index: int) -> None:
-        """Add a video chunk to the upload queue."""
-        self._chunk_queue.put((video_bytes, chunk_index))
+    def enqueue_chunk(self, video_bytes: bytes, chunk_index: int, chunk_start_sec: float = 0.0) -> None:
+        """Add a video chunk to the upload queue with its actual start timestamp."""
+        self._chunk_queue.put((video_bytes, chunk_index, chunk_start_sec))
 
     def enqueue_emotion(self, emotion_data: Dict) -> None:
         """Add an emotion reading to the batch queue."""
@@ -170,7 +170,7 @@ class ChunkUploader:
             self._emit_status(f"Finalize error: {e}")
             return None
 
-    def create_session(self, tester_name: str = "desktop_tester") -> Optional[str]:
+    def create_session(self, tester_name: str = "desktop_tester", chunk_duration_sec: float = 10.0) -> Optional[str]:
         """Create a new session on the backend and set self.session_id.
 
         Returns session_id or None.
@@ -179,7 +179,7 @@ class ChunkUploader:
         try:
             resp = requests.post(
                 url,
-                json={"tester_name": tester_name, "chunk_duration_sec": 10.0},
+                json={"tester_name": tester_name, "chunk_duration_sec": chunk_duration_sec},
                 timeout=10,
             )
             if resp.status_code == 200:
@@ -200,11 +200,11 @@ class ChunkUploader:
         """Worker thread that uploads video chunks from the queue."""
         while self._running or not self._chunk_queue.empty():
             try:
-                video_bytes, chunk_index = self._chunk_queue.get(timeout=1.0)
+                video_bytes, chunk_index, chunk_start_sec = self._chunk_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
 
-            success = self._upload_chunk(video_bytes, chunk_index)
+            success = self._upload_chunk(video_bytes, chunk_index, chunk_start_sec)
             if success:
                 self.chunks_uploaded += 1
             else:
@@ -218,8 +218,8 @@ class ChunkUploader:
 
             self._chunk_queue.task_done()
 
-    def _upload_chunk(self, video_bytes: bytes, chunk_index: int) -> bool:
-        """Upload a single chunk to the backend."""
+    def _upload_chunk(self, video_bytes: bytes, chunk_index: int, chunk_start_sec: float = 0.0) -> bool:
+        """Upload a single chunk to the backend with its actual start timestamp."""
         if not self.session_id:
             return False
 
@@ -227,7 +227,10 @@ class ChunkUploader:
         try:
             resp = requests.post(
                 url,
-                data={"chunk_index": str(chunk_index)},
+                data={
+                    "chunk_index": str(chunk_index),
+                    "chunk_start_sec": str(chunk_start_sec),
+                },
                 files={"file": (f"chunk_{chunk_index}.mp4", video_bytes, "video/mp4")},
                 timeout=30,
             )

@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from models import FusedRow
 
 # DFA state names in canonical order (for one-hot encoding)
-DEFAULT_STATES = ["tutorial", "puzzle_room", "surprise_event", "gauntlet", "victory"]
+DEFAULT_STATES = ["tutorial", "puzzle_room", "bonus_room", "surprise_event", "gauntlet", "victory"]
 
 
 def generate_window_embedding(

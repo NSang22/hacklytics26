@@ -51,7 +51,7 @@ EMBEDDING_WINDOW_SEC: int = int(os.getenv("EMBEDDING_WINDOW_SEC", "10"))
 WARN_DELTA_THRESHOLD: float = 0.25   # delta >= this -> FAIL, else WARN
 
 # ── Emotion name → measured column mapping ───────────────────────────────────
-# Maps DFA intended_emotion strings to actual Presage DataFrame column names.
+# Maps DFA intended_emotion strings to actual emotion DataFrame column names.
 EMOTION_COLUMN_MAP: dict = {
     "frustration": "frustration",
     "confusion":   "confusion",

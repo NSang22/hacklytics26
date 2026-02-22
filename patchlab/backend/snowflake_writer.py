@@ -4,7 +4,7 @@ PatchLab — Snowflake Writer (Medallion Architecture)
 Writes session data to Snowflake in three layers:
 
   BRONZE  — Raw streams exactly as received (append-only, never modified)
-             Tables: BRONZE_PRESAGE, BRONZE_WATCH, BRONZE_CHUNKS
+             Tables: BRONZE_EMOTION, BRONZE_WATCH, BRONZE_CHUNKS
 
   SILVER  — Clean fused 1-Hz DataFrame rows
              Table: SILVER_FUSED
@@ -16,12 +16,12 @@ Session isolation: every row includes session_id as a partition key so
 multiple testers can run concurrently without interfering.
 
 Public API (called by main.py):
-    write_bronze_presage(session_id, project_id, frames)
+    write_bronze_emotion(session_id, project_id, frames)
     write_bronze_watch(session_id, project_id, readings)
     write_bronze_chunks(session_id, project_id, chunk_results)
     write_silver(session_id, project_id, fused_df)
     write_gold(session_id, project_id, fused_df, dfa_config)
-    write_all(session_id, project_id, presage, watch, chunks, fused_df, dfa_config)
+    write_all(session_id, project_id, emotion, watch, chunks, fused_df, dfa_config)
 
 Set MOCK_MODE=true in .env to skip all Snowflake calls during development.
 """
@@ -103,8 +103,8 @@ def _executemany(conn, sql: str, rows: List[tuple]):
 # ─────────────────────────────────────────────────────────────────────────────
 
 _DDL = {
-    "BRONZE_PRESAGE": """
-        CREATE TABLE IF NOT EXISTS BRONZE_PRESAGE (
+    "BRONZE_EMOTION": """
+        CREATE TABLE IF NOT EXISTS BRONZE_EMOTION (
             ingested_at     TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP,
             session_id      VARCHAR(64)   NOT NULL,
             project_id      VARCHAR(64),
@@ -115,8 +115,6 @@ _DDL = {
             boredom         FLOAT,
             surprise        FLOAT,
             engagement      FLOAT,
-            presage_hr      FLOAT,
-            breathing_rate  FLOAT,
             gaze_x          FLOAT,
             gaze_y          FLOAT,
             gaze_confidence FLOAT,
@@ -170,8 +168,6 @@ _DDL = {
             hr                 FLOAT,
             hrv_rmssd          FLOAT,
             hrv_sdnn           FLOAT,
-            presage_hr         FLOAT,
-            breathing_rate     FLOAT,
             intent_delta       FLOAT,
             dominant_emotion   VARCHAR(64),
             data_quality       FLOAT
@@ -229,19 +225,19 @@ def ensure_tables(conn):
 # BRONZE writes
 # ─────────────────────────────────────────────────────────────────────────────
 
-def write_bronze_presage(
+def write_bronze_emotion(
     session_id: str,
     project_id: str,
     frames: List[Any],
     conn=None,
 ) -> int:
     """
-    Write raw Presage frames to BRONZE_PRESAGE.
+    Write raw MediaPipe emotion frames to BRONZE_EMOTION.
     Accepts List[EmotionFrame] or List[dict].
     Returns number of rows inserted.
     """
     if MOCK_MODE:
-        logger.info(f"[snowflake][MOCK] write_bronze_presage: {len(frames)} rows skipped")
+        logger.info(f"[snowflake][MOCK] write_bronze_emotion: {len(frames)} rows skipped")
         return len(frames)
 
     if not frames:
@@ -258,15 +254,11 @@ def write_bronze_presage(
                 "boredom":        f.boredom,
                 "surprise":       f.surprise,
                 "engagement":     f.engagement,
-                "presage_hr":     f.heart_rate,
-                "breathing_rate": f.breathing_rate,
             }
         else:
             ts = float(f.get("timestamp_sec", f.get("timestamp", 0.0)))
             d = {k: float(f.get(k, 0.0)) for k in
                  ["frustration", "confusion", "delight", "boredom", "surprise", "engagement"]}
-            d["presage_hr"]     = float(f.get("heart_rate", f.get("hr", 0.0)))
-            d["breathing_rate"] = float(f.get("breathing_rate", 0.0))
             d["gaze_x"]         = float(f.get("gaze_x", 0.5))
             d["gaze_y"]         = float(f.get("gaze_y", 0.5))
             d["gaze_confidence"] = float(f.get("gaze_confidence", 0.0))
@@ -278,9 +270,8 @@ def write_bronze_presage(
             session_id, project_id, ts,
             d["frustration"], d["confusion"], d["delight"],
             d["boredom"], d["surprise"], d["engagement"],
-            d["presage_hr"], d["breathing_rate"],
-            d["gaze_x"], d["gaze_y"], d["gaze_confidence"],
-            d["head_pitch"], d["head_yaw"], d["head_roll"],
+            d.get("gaze_x", 0.5), d.get("gaze_y", 0.5), d.get("gaze_confidence", 0.0),
+            d.get("head_pitch", 0.0), d.get("head_yaw", 0.0), d.get("head_roll", 0.0),
             json.dumps(d),
         ))
 
@@ -291,17 +282,16 @@ def write_bronze_presage(
     try:
         ensure_tables(conn)
         sql = """
-            INSERT INTO BRONZE_PRESAGE
+            INSERT INTO BRONZE_EMOTION
             (session_id, project_id, timestamp_sec,
              frustration, confusion, delight, boredom, surprise, engagement,
-             presage_hr, breathing_rate,
              gaze_x, gaze_y, gaze_confidence,
              head_pitch, head_yaw, head_roll,
              raw_json)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, PARSE_JSON(%s))
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, PARSE_JSON(%s))
         """
         _executemany(conn, sql, rows)
-        logger.info(f"[snowflake] BRONZE_PRESAGE: inserted {len(rows)} rows for session {session_id}")
+        logger.info(f"[snowflake] BRONZE_EMOTION: inserted {len(rows)} rows for session {session_id}")
         return len(rows)
     finally:
         if close_after:
@@ -443,8 +433,6 @@ def write_silver(
             float(row["hr"]),
             float(row["hrv_rmssd"]),
             float(row["hrv_sdnn"]),
-            float(row["presage_hr"]),
-            float(row["breathing_rate"]),
             float(row["intent_delta"]),
             str(row["dominant_emotion"]),
             float(row["data_quality"]),
@@ -462,10 +450,10 @@ def write_silver(
             INSERT INTO SILVER_FUSED
             (session_id, project_id, t, state, time_in_state_sec,
              frustration, confusion, delight, boredom, surprise, engagement,
-             hr, hrv_rmssd, hrv_sdnn, presage_hr, breathing_rate,
+             hr, hrv_rmssd, hrv_sdnn,
              intent_delta, dominant_emotion, data_quality)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s, %s)
         """
         _executemany(conn, sql, rows)
         logger.info(f"[snowflake] SILVER_FUSED: inserted {len(rows)} rows for session {session_id}")
@@ -699,7 +687,7 @@ def _mock_gold_result(
 def write_all(
     session_id: str,
     project_id: str,
-    presage_frames: List[Any],
+    emotion_frames: List[Any],
     watch_readings: List[Any],
     chunk_results: List[ChunkResult],
     fused_df: pd.DataFrame,
@@ -711,7 +699,7 @@ def write_all(
     """
     if MOCK_MODE:
         logger.info(f"[snowflake][MOCK] write_all for session {session_id}")
-        write_bronze_presage(session_id, project_id, presage_frames)
+        write_bronze_emotion(session_id, project_id, emotion_frames)
         write_bronze_watch(session_id, project_id, watch_readings)
         write_bronze_chunks(session_id, project_id, chunk_results)
         write_silver(session_id, project_id, fused_df)
@@ -721,7 +709,7 @@ def write_all(
     conn = _get_connection()
     try:
         ensure_tables(conn)
-        write_bronze_presage(session_id, project_id, presage_frames, conn=conn)
+        write_bronze_emotion(session_id, project_id, emotion_frames, conn=conn)
         write_bronze_watch(session_id, project_id, watch_readings, conn=conn)
         write_bronze_chunks(session_id, project_id, chunk_results, conn=conn)
         write_silver(session_id, project_id, fused_df, conn=conn)

@@ -51,7 +51,7 @@ async def main():
     fused_a1 = [
         {"t": 0, "state": "tutorial", "time_in_state_sec": 5, "frustration": 0.2, "confusion": 0.3,
          "delight": 0.7, "boredom": 0.1, "surprise": 0.4, "engagement": 0.8,
-         "hr": 75.0, "hrv_rmssd": 40.0, "hrv_sdnn": 50.0, "presage_hr": 76.0, "breathing_rate": 15.0,
+         "hr": 75.0, "hrv_rmssd": 40.0, "hrv_sdnn": 50.0,
          "intent_delta": 0.05, "dominant_emotion": "delight", "data_quality": 0.95}
     ]
     await client.store_fused_rows("session_a1", fused_a1, "project_a")
@@ -70,7 +70,7 @@ async def main():
     fused_b1 = [
         {"t": 0, "state": "tutorial", "time_in_state_sec": 8, "frustration": 0.8, "confusion": 0.9,
          "delight": 0.1, "boredom": 0.7, "surprise": 0.2, "engagement": 0.3,
-         "hr": 95.0, "hrv_rmssd": 25.0, "hrv_sdnn": 30.0, "presage_hr": 98.0, "breathing_rate": 22.0,
+         "hr": 95.0, "hrv_rmssd": 25.0, "hrv_sdnn": 30.0,
          "intent_delta": -0.6, "dominant_emotion": "frustration", "data_quality": 0.88}
     ]
     await client.store_fused_rows("session_b1", fused_b1, "project_b")

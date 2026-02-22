@@ -151,7 +151,6 @@ export default function SessionReview() {
                         <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }} />
                         <Legend />
                         <Line type="monotone" dataKey="watch_hr" stroke="#f97316" dot={false} name="Watch HR" strokeWidth={2} />
-                        <Line type="monotone" dataKey="presage_hr" stroke="#8b5cf6" dot={false} name="Presage HR" strokeWidth={2} />
                         <ReferenceLine y={80} stroke="#cbd5e1" strokeDasharray="5 5" label="Baseline" />
                       </LineChart>
                     </ResponsiveContainer>

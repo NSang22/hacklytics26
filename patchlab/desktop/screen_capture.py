@@ -39,7 +39,9 @@ class ScreenCapture:
         self._recording = False
         self._thread: Optional[threading.Thread] = None
         self._chunk_index = 0
-        self._on_chunk_ready: Optional[Callable[[bytes, int], None]] = None
+        self._recording_start_time: float = 0.0  # monotonic time when recording began
+        self._chunk_start_time: float = 0.0      # monotonic time when current chunk began
+        self._on_chunk_ready: Optional[Callable[[bytes, int, float], None]] = None
         self._lock = threading.Lock()
         self._latest_frame: Optional[np.ndarray] = None
         self._frame_lock = threading.Lock()
@@ -58,13 +60,16 @@ class ScreenCapture:
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
 
-    def start(self, on_chunk_ready: Callable[[bytes, int], None]) -> None:
+    def start(self, on_chunk_ready: Callable[[bytes, int, float], None]) -> None:
         """Start screen capture with chunk recording.
 
         If already running in preview, upgrades to recording mode.
+        Callback signature: (video_bytes, chunk_index, chunk_start_sec)
         """
         self._on_chunk_ready = on_chunk_ready
         self._chunk_index = 0
+        self._recording_start_time = time.monotonic()
+        self._chunk_start_time = self._recording_start_time
         if self._running:
             self._recording = True
             return
@@ -144,7 +149,9 @@ class ScreenCapture:
                 # Setup chunk writer only when recording
                 tmp_path = None
                 writer = None
-                if self._recording:
+                is_recording_chunk = self._recording
+                if is_recording_chunk:
+                    self._chunk_start_time = time.monotonic()
                     tmp = tempfile.NamedTemporaryFile(
                         suffix=".mp4", delete=False, prefix="patchlab_chunk_"
                     )
@@ -197,21 +204,22 @@ class ScreenCapture:
                 # Finish chunk
                 if writer:
                     writer.release()
-                if tmp_path and self._recording and self._on_chunk_ready:
+                if tmp_path and is_recording_chunk and self._on_chunk_ready:
+                    # Compute actual elapsed seconds since recording started
+                    chunk_start_sec = self._chunk_start_time - self._recording_start_time
                     try:
                         with open(tmp_path, "rb") as f:
                             chunk_bytes = f.read()
-                        self._on_chunk_ready(chunk_bytes, self._chunk_index)
+                        self._on_chunk_ready(chunk_bytes, self._chunk_index, chunk_start_sec)
                     except Exception as e:
                         print(f"[ScreenCapture] Error reading chunk: {e}")
+                    with self._lock:
+                        self._chunk_index += 1
                 if tmp_path:
                     try:
                         os.unlink(tmp_path)
                     except OSError:
                         pass
-
-                with self._lock:
-                    self._chunk_index += 1
 
     # ── Accessors ───────────────────────────────────────────
 

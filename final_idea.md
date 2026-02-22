@@ -69,8 +69,8 @@ Additionally, an **in-browser game recorder** (`patchlab/game/`) enables HTML5 g
 
 | Route | Page | Description |
 |-------|------|-------------|
-| `/` | **ProjectSetup** | DFA state editor: name, intended emotion (9 options), expected duration, acceptable range, description, visual cues, failure/success indicators. Mario 1-1 preset (5 states). DFA transition editor with auto-generate. Optimal playthrough video upload. |
-| `/sessions` | **SessionManagement** | Session creation, 3s-poll live collection monitor, stream health indicators (Screen/Presage/Watch: Live/Waiting), configurable chunk duration 5-30s slider |
+| `/` | **ProjectSetup** | DFA state editor: name, intended emotion (9 options), expected duration, acceptable range, description, visual cues, failure/success indicators. Mario 1-1 preset (6 states including bonus room). DFA transition editor with auto-generate. Optimal playthrough video upload. |
+| `/sessions` | **SessionManagement** | Session creation, 3s-poll live collection monitor, stream health indicators (Screen/MediaPipe/Watch: Live/Waiting), configurable chunk duration 5-30s slider |
 | `/review` | **SessionReview** | 4-tab analysis: Overview (emotion timeline + HR chart), Chunks (per-chunk Gemini results), Events (severity icons, death counter, bar chart), Verdicts (intended vs actual, score bar, deviation). Fetches 6 endpoints in parallel. |
 | `/aggregate` | **CrossTesterAggregate** | Project-level cross-tester summary, health trend over sessions, pain point ranking |
 | `/sphinx` | **SphinxExplorer** | Natural language query interface for Snowflake + VectorAI analytics |
@@ -254,7 +254,7 @@ Assemble into a unified DataFrame (19 columns per row):
 ```
 t, session_id, state, time_in_state_sec,
 frustration, confusion, delight, boredom, surprise, engagement,
-hr, hrv_rmssd, hrv_sdnn, presage_hr, breathing_rate, movement_variance,
+hr, hrv_rmssd, hrv_sdnn, movement_variance,
 intent_delta, dominant_emotion, data_quality
 ```
 
@@ -297,7 +297,7 @@ When `POST /v1/sessions/{id}/finalize` is called:
 
 | Layer | Table | Content |
 |-------|-------|---------|
-| Bronze | `BRONZE_PRESAGE` | Raw emotion frames with gaze data |
+| Bronze | `BRONZE_EMOTION` | Raw emotion frames with gaze data |
 | Bronze | `BRONZE_WATCH` | Raw HR/HRV readings |
 | Bronze | `BRONZE_CHUNKS` | Raw Gemini chunk analysis results |
 | Silver | `SILVER_FUSED` | Clean 1Hz fused DataFrame (19 columns) |
@@ -388,7 +388,7 @@ On game end: uploads face video -> finalizes session.
 ```
 Desktop Client / Browser Game
   |-- Screen Capture (chunks) --> POST /upload-chunk --> Gemini Vision DFA
-  |-- Webcam (emotion frames) --> POST /emotion-frames --> Bronze_Presage
+  |-- Webcam (emotion frames) --> POST /emotion-frames --> Bronze_Emotion
   |-- Apple Watch BLE (HR/HRV) --> WS /watch-stream --> Bronze_Watch
   +-- Face Video ---------------> POST /upload-face-video
                                           |

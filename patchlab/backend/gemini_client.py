@@ -164,7 +164,65 @@ class GeminiClient:
 
         return self._stub_cross_tester(aggregate_data)
 
-    # ── Real Gemini API call ────────────────────────────────
+    # ── Dual-frame processing (inline JPEG parts) ───────────
+    async def process_frames(
+        self,
+        frames: List[bytes],
+        prompt: str,
+        session_id: str = "",
+    ) -> Dict:
+        """Send extracted JPEG frames as inline Part.from_bytes() to Gemini.
+
+        Instead of uploading a whole video file and waiting for it to become
+        ACTIVE, this sends each pre-extracted JPEG frame as an inline content
+        part.  Gemini sees the frames sequentially — exactly what the DFA
+        transition function prompt expects.
+
+        Falls back to stub if no API key or if frames list is empty.
+        """
+        if self._client and frames:
+            try:
+                return await self._call_gemini_frames(
+                    model=MODEL_CHUNK_ANALYSIS,
+                    frames=frames,
+                    prompt=prompt,
+                )
+            except Exception as e:
+                print(f"[gemini] Frame analysis error: {e}, falling back to stub")
+
+        return self._stub_chunk(prompt)
+
+    async def _call_gemini_frames(
+        self, model: str, frames: List[bytes], prompt: str
+    ) -> Dict:
+        """Build inline image parts from JPEG bytes and call Gemini."""
+        from google.genai import types
+
+        # Build content parts: text prompt first, then sequentially-numbered frames
+        parts: list = [types.Part.from_text(text=prompt)]
+        for i, jpeg_bytes in enumerate(frames):
+            parts.append(types.Part.from_bytes(
+                data=jpeg_bytes,
+                mime_type="image/jpeg",
+            ))
+
+        print(f"[gemini] Sending {len(frames)} inline JPEG frames to {model}")
+
+        response = self._client.models.generate_content(
+            model=model,
+            contents=parts,
+        )
+
+        text = response.text
+        # Extract JSON from response
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+
+        return json.loads(text.strip())
+
+    # ── Legacy video-upload API call (kept for optimal playthrough) ─
     async def _call_gemini(
         self, model: str, video_bytes: bytes, prompt: str, fps: int = 2
     ) -> Dict:

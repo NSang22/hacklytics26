@@ -111,7 +111,7 @@ PlayPulse stores all playtest data in Snowflake using three layers.
 
 | Table | Source | Rate |
 |---|---|---|
-| `bronze_presage_emotions` | Facial emotion (frustration, confusion, delight, surprise, engagement, boredom) | ~10/sec |
+| `bronze_mediapipe_emotions` | Facial emotion (frustration, confusion, delight, surprise, engagement, boredom) | ~10/sec |
 | `bronze_gemini_chunks` | Gemini's analysis of 15-second gameplay video chunks — DFA state, events, behavior | 1 per 15s |
 | `bronze_watch_biometrics` | Apple Watch heart rate + HRV | ~1/sec |
 
@@ -119,7 +119,7 @@ PlayPulse stores all playtest data in Snowflake using three layers.
 
 | Table | What it is |
 |---|---|
-| `silver_fused_timeline` | All three sources merged into one row per second. Presage averaged to 1/s, Gemini state forward-filled, Watch aligned 1:1 |
+| `silver_fused_timeline` | All three sources merged into one row per second. MediaPipe averaged to 1/s, Gemini state forward-filled, Watch aligned 1:1 |
 
 ### Gold — computed analytics (what Sphinx mostly queries)
 

@@ -14,7 +14,7 @@ dfa = DFAConfig(states=[
     DFAState(name='pit',       intended_emotion='tense',       acceptable_range=(0.45, 0.75), expected_duration_sec=10),
     DFAState(name='boss',      intended_emotion='frustration', acceptable_range=(0.5,  0.9),  expected_duration_sec=20),
 ])
-presage = [
+emotion_frames = [
     {"timestamp": t / 10.0, "frustration": round(random.uniform(0.1, 0.4), 3),
      "confusion": round(random.uniform(0.1, 0.3), 3), "delight": round(random.uniform(0.2, 0.5), 3),
      "boredom": round(random.uniform(0.1, 0.3), 3), "surprise": round(random.uniform(0.0, 0.2), 3)}
@@ -40,7 +40,7 @@ chunk_results = [
 ]
 
 fused_df = fuse_streams(
-    presage_frames=presage, watch_readings=watch,
+    emotion_frames=emotion_frames, watch_readings=watch,
     chunk_results=chunk_results, dfa_config=dfa,
     session_id='test-emb-001',
 )

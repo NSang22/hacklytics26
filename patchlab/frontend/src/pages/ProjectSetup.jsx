@@ -29,8 +29,18 @@ const MARIO_PRESET = [
   { ...EMPTY_STATE, name: 'overworld_start', intended_emotion: 'excited', description: 'Opening run — flat ground, first Goomba, ? blocks. Fast-paced introduction.', visual_cues: 'Green grass, blue sky, Goomba, ? blocks, brick blocks', failure_indicators: 'Repeated deaths to first Goomba, frozen in place for >3s', success_indicators: 'Stomps Goomba, hits ? block, keeps momentum', expected_duration_sec: 8 },
   { ...EMPTY_STATE, name: 'block_discovery', intended_emotion: 'curious', description: 'Player discovers ? blocks give power-ups, coins from bricks', visual_cues: '? blocks pulsing, mushroom emerging, coin particles', failure_indicators: 'Runs past all ? blocks without hitting any', success_indicators: 'Hits ? blocks, grabs mushroom, grows big', expected_duration_sec: 5 },
   { ...EMPTY_STATE, name: 'platforming', intended_emotion: 'tense', description: 'Pipes, pits, and enemies — core platforming challenge. Deaths send player back to start; single deaths are normal, excessive deaths signal a problem.', visual_cues: 'Green pipes, gaps in ground, Koopas, piranha plants, elevated platforms', failure_indicators: 'Dies 3+ times in same section, stuck for >10s, backtracks repeatedly', success_indicators: 'Navigates pipes and pits with momentum, clears gaps confidently', expected_duration_sec: 15 },
+  { ...EMPTY_STATE, name: 'bonus_room', intended_emotion: 'delighted', description: 'Underground coin room — player enters through a warp pipe, collects coins in a hidden area, then exits through a pipe at the end.', visual_cues: 'Underground dark background, rows of coins, brick ceiling, exit pipe on right', failure_indicators: 'Misses most coins, confused by exit pipe, stuck for >5s', success_indicators: 'Collects majority of coins, finds exit pipe quickly', expected_duration_sec: 8 },
   { ...EMPTY_STATE, name: 'mid_gauntlet', intended_emotion: 'excited', description: 'Dense enemy section — Goombas, Koopas, elevated platforms. Deaths respawn to start; only repeated death loops are concerning.', visual_cues: 'Multiple enemies, stacked platforms, coins above, moving Koopa shells', failure_indicators: 'Dies 3+ times consecutively, gives up or stops moving', success_indicators: 'Chain stomps enemies, maintains flow, collects coins', expected_duration_sec: 12 },
   { ...EMPTY_STATE, name: 'flagpole', intended_emotion: 'delighted', description: 'Staircase approach and flagpole grab — victory moment', visual_cues: 'Ascending stair blocks, flagpole, castle in background, fireworks', failure_indicators: 'Falls off stairs repeatedly, very low flag grab', success_indicators: 'Reaches top of flagpole, smooth staircase ascent', expected_duration_sec: 6 },
+];
+
+const MARIO_TRANSITIONS = [
+  { from_state: 'overworld_start', to_state: 'block_discovery', trigger: 'reaches ? block area' },
+  { from_state: 'block_discovery', to_state: 'platforming', trigger: 'moves past blocks into pipe/pit section' },
+  { from_state: 'platforming', to_state: 'bonus_room', trigger: 'enters warp pipe to underground coin room' },
+  { from_state: 'platforming', to_state: 'mid_gauntlet', trigger: 'skips warp pipe, continues overworld' },
+  { from_state: 'bonus_room', to_state: 'mid_gauntlet', trigger: 'exits bonus room through pipe' },
+  { from_state: 'mid_gauntlet', to_state: 'flagpole', trigger: 'clears enemies, reaches staircase' },
 ];
 
 export default function ProjectSetup() {
@@ -186,7 +196,7 @@ export default function ProjectSetup() {
         ))}
 
         <button className="btn-ghost" onClick={addState} style={{ marginRight: 8 }}>+ Add State</button>
-        <button className="btn-ghost" onClick={() => { setStates(MARIO_PRESET); setName('Super Mario Bros 1-1'); setDesc('NES Mario World 1-1 — first level playtest'); }} style={{ background: 'linear-gradient(135deg, #ef4444, #f59e0b)', color: '#fff', border: 'none' }}>
+        <button className="btn-ghost" onClick={() => { setStates(MARIO_PRESET); setTransitions(MARIO_TRANSITIONS); setName('Super Mario Bros 1-1'); setDesc('NES Mario World 1-1 — first level playtest'); }} style={{ background: 'linear-gradient(135deg, #ef4444, #f59e0b)', color: '#fff', border: 'none' }}>
           🍄 Load Mario 1-1 Preset
         </button>
       </div>

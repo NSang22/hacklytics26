@@ -300,15 +300,19 @@ def _generate_mock_result(
 
 async def _call_gemini_with_retry(
     gemini_client: Any,
-    video_bytes: bytes,
+    frames: List[bytes],
     prompt: str,
     session_id: str,
 ) -> Dict:
-    """Calls gemini_client.process_chunk with retry/backoff."""
+    """Calls gemini_client.process_frames with retry/backoff.
+
+    Sends pre-extracted JPEG frames as inline parts (dual-frame processing)
+    instead of uploading whole video files.
+    """
     last_exc: Optional[Exception] = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            result = await gemini_client.process_chunk(video_bytes, prompt, session_id)
+            result = await gemini_client.process_frames(frames, prompt, session_id)
             if isinstance(result, dict):
                 return result
             return json.loads(result)
@@ -324,35 +328,71 @@ async def _call_gemini_with_retry(
 
 def _build_gemini_prompt(
     chunk_index: int,
+    chunk_start_sec: float,
+    num_frames: int,
     dfa_config: DFAConfig,
     previous_context: Optional[Dict],
 ) -> str:
-    """Constructs the structured prompt sent to Gemini for each chunk."""
+    """Constructs a DFA-transition-function prompt for Gemini.
+
+    The prompt frames Gemini as the transition function delta of a DFA:
+      - It receives a CURRENT_STATE from the previous chunk (or the initial state).
+      - It processes each frame sequentially, deciding if a state transition
+        occurred between consecutive frames.
+      - It reports all state observations, transitions, and events.
+
+    The frames are sent as inline JPEG image parts immediately after this
+    text prompt, so Gemini sees them in chronological order.
+    """
     state_desc = "\n".join(
-        f"  - {s.name}: intended_emotion={s.intended_emotion}, "
+        f"  - {s.name}: "
+        f"description=\"{s.description}\", "
+        f"intended_emotion={s.intended_emotion}, "
         f"visual_cues={s.visual_cues}, "
+        f"success_indicators={s.success_indicators}, "
         f"failure_indicators={s.failure_indicators}"
         for s in dfa_config.states
     )
     valid_state_names = [s.name for s in dfa_config.states]
 
-    context_block = ""
+    # Determine current state from previous chunk or default to first state
     if previous_context:
-        context_block = (
-            f"\nCONTEXT FROM PREVIOUS CHUNK:\n"
-            f"  end_state: {previous_context.get('end_state', 'unknown')}\n"
-            f"  end_status: {previous_context.get('end_status', '')}\n"
-            f"  cumulative_deaths: {previous_context.get('cumulative_deaths', 0)}\n"
-        )
+        current_state = previous_context.get("end_state", valid_state_names[0] if valid_state_names else "unknown")
+        current_status = previous_context.get("end_status", "progressing")
+        cumulative_deaths = previous_context.get("cumulative_deaths", 0)
+    else:
+        current_state = valid_state_names[0] if valid_state_names else "unknown"
+        current_status = "progressing"
+        cumulative_deaths = 0
 
-    return f"""Analyze this {CHUNK_DURATION_SEC}-second gameplay recording (chunk #{chunk_index}).
+    fps_val = CHUNK_FPS
+    chunk_end_sec = chunk_start_sec + CHUNK_DURATION_SEC
 
-NOTE: Yellow circles with crosshairs on the video show where the player was looking (gaze tracking). 
-Use this to determine if the player noticed important visual cues or was looking elsewhere.
+    return f"""You are the transition function (delta) of a Deterministic Finite Automaton (DFA) analyzing gameplay.
+
+CURRENT STATE: {current_state}
+CURRENT STATUS: {current_status}
+CUMULATIVE DEATHS SO FAR: {cumulative_deaths}
+TIME WINDOW: {chunk_start_sec:.1f}s - {chunk_end_sec:.1f}s (chunk #{chunk_index})
+FRAMES: {num_frames} sequential frames at {fps_val} FPS are attached below.
+
+Your job: Process each frame in order. Compare consecutive frames to detect state transitions.
+A transition occurs when the visual scene changes to match a different DFA state's visual cues.
 
 DFA STATES (use EXACTLY these names):
 {state_desc}
-{context_block}
+
+GAZE TRACKING: Yellow circles with crosshairs on frames show where the player was looking.
+Use this to assess if the player noticed key visual cues or was looking elsewhere.
+
+INSTRUCTIONS:
+1. Start in state "{current_state}" at t={chunk_start_sec:.1f}s
+2. For each frame, determine if the scene still matches "{current_state}" or has transitioned
+3. Report ALL states observed, with precise enter/exit timestamps
+4. Report transitions with the exact frame where the scene changed
+5. Report gameplay events (deaths, getting stuck, close calls, exploration, backtracking)
+6. Use absolute timestamps (session time, not chunk-relative)
+
 Return ONLY valid JSON:
 {{
   "states_observed": [
@@ -380,10 +420,15 @@ Return ONLY valid JSON:
       "state": "<state_name>"
     }}
   ],
-  "end_state": "<state_name>",
+  "end_state": "<state_name at last frame>",
   "end_status": "<progressing|stuck|dying|confused|exploring>",
-  "chunk_summary": "<one sentence for next chunk context>"
+  "chunk_summary": "<one sentence describing what happened for the next chunk's context>"
 }}"""
+
+
+def _clamp(val: float, lo: float, hi: float) -> float:
+    """Clamp a value to [lo, hi]."""
+    return max(lo, min(val, hi))
 
 
 def _parse_gemini_response(
@@ -392,29 +437,35 @@ def _parse_gemini_response(
     chunk_start_sec: float,
     prev_deaths: int,
 ) -> ChunkResult:
-    """Converts raw Gemini dict into a typed ChunkResult."""
+    """Converts raw Gemini dict into a typed ChunkResult.
+    
+    All timestamps from Gemini are clamped to [chunk_start_sec, chunk_end_sec]
+    to prevent hallucinated time values from inflating session duration.
+    """
     chunk_end_sec = chunk_start_sec + CHUNK_DURATION_SEC
 
-    states_observed = [
-        ChunkStateObservation(
+    states_observed = []
+    for obs in data.get("states_observed", []):
+        entered = _clamp(float(obs.get("entered_at_sec", chunk_start_sec)), chunk_start_sec, chunk_end_sec)
+        exited = _clamp(float(obs.get("exited_at_sec", chunk_end_sec)), chunk_start_sec, chunk_end_sec)
+        if exited < entered:
+            exited = entered  # sanity: never negative duration
+        states_observed.append(ChunkStateObservation(
             state_name=obs.get("state_name", "unknown"),
-            entered_at_sec=float(obs.get("entered_at_sec", chunk_start_sec)),
-            exited_at_sec=float(obs.get("exited_at_sec", chunk_end_sec)),
-            duration_sec=float(obs.get("exited_at_sec", chunk_end_sec))
-                         - float(obs.get("entered_at_sec", chunk_start_sec)),
+            entered_at_sec=entered,
+            exited_at_sec=exited,
+            duration_sec=exited - entered,
             player_behavior=obs.get("player_behavior", "progressing"),
             progress=obs.get("progress", "normal"),
             matches_success_indicators=False,
             matches_failure_indicators=False,
-        )
-        for obs in data.get("states_observed", [])
-    ]
+        ))
 
     transitions = [
         ChunkTransition(
             from_state=t.get("from_state"),
             to_state=t.get("to_state", "unknown"),
-            timestamp_sec=float(t.get("timestamp_sec", chunk_start_sec)),
+            timestamp_sec=_clamp(float(t.get("timestamp_sec", chunk_start_sec)), chunk_start_sec, chunk_end_sec),
             confidence=float(t.get("confidence", 1.0)),
         )
         for t in data.get("transitions", [])
@@ -423,7 +474,7 @@ def _parse_gemini_response(
     events = [
         ChunkEvent(
             type=e.get("type", "unknown"),
-            timestamp_sec=float(e.get("timestamp_sec", chunk_start_sec)),
+            timestamp_sec=_clamp(float(e.get("timestamp_sec", chunk_start_sec)), chunk_start_sec, chunk_end_sec),
             description=e.get("description", ""),
             state=e.get("state", "unknown"),
         )
@@ -511,11 +562,13 @@ async def process_chunk(
     elif emotion_frames:
         logger.info(f"[chunk_processor] Overlaid gaze data on {len(frames)} frames")
 
-    # Step 2: Build the prompt
-    prompt = _build_gemini_prompt(chunk_index, dfa_config, previous_context)
+    # Step 2: Build the DFA transition function prompt
+    prompt = _build_gemini_prompt(
+        chunk_index, chunk_start_sec, len(frames), dfa_config, previous_context
+    )
 
-    # Step 3: Call Gemini with retry
-    raw_data = await _call_gemini_with_retry(gemini_client, video_bytes, prompt, session_id)
+    # Step 3: Call Gemini with frames (dual-frame processing)
+    raw_data = await _call_gemini_with_retry(gemini_client, frames, prompt, session_id)
 
     # Step 4: Parse into typed model
     prev_deaths = (previous_context or {}).get("cumulative_deaths", 0)

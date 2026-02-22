@@ -447,7 +447,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="text-sm font-bold tracking-widest uppercase text-white/80">Emotion Timeline</h2>
-                  <p className="text-[10px] text-white/30 mt-0.5">All 4 Presage streams · DFA states as bands · hover for details</p>
+                  <p className="text-[10px] text-white/30 mt-0.5">All 4 data streams · DFA states as bands · hover for details</p>
                 </div>
               </div>
               <EmotionTimeline timeline={TIMELINE} />

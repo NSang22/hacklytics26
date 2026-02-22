@@ -5,7 +5,7 @@ Full E2E test — simulates a Mario 1-1 playtest session.
 2. Creates session
 3. Generates synthetic 10s video chunks (colored frames w/ state text)
 4. Uploads chunks → triggers Gemini processing
-5. Sends emotion frames (simulated Presage)
+5. Sends emotion frames (simulated MediaPipe)
 6. Sends watch data (simulated Apple Watch)
 7. Finalizes session → fusion + verdicts + health score
 8. Reads back all results
@@ -77,7 +77,7 @@ def make_test_video(chunk_index: int, duration_sec: float = 10.0, fps: int = 3) 
 
 
 def generate_emotion_frames(duration_sec: int) -> list:
-    """Simulate Presage emotion data at ~10 Hz."""
+    """Simulate MediaPipe emotion data at ~10 Hz."""
     frames = []
     states_by_time = [
         (0, 15, "delight_zone"),     # Spawn: happy
@@ -199,7 +199,7 @@ def main():
     print(f"  ✓ Backend running: {info['service']} v{info['version']}")
     
     # 2. Create project
-    print("\n[2/8] Creating Mario 1-1 project with 5 DFA states...")
+    print("\n[2/8] Creating Mario 1-1 project with 6 DFA states...")
     proj_body = {
         "name": "Super Mario Bros 1-1",
         "description": "NES Mario World 1-1 playtest — E2E test",
@@ -222,6 +222,12 @@ def main():
              "visual_cues": ["pipes", "gaps in ground", "koopa troopas"],
              "failure_indicators": ["dies 3+ times in same section", "stuck >10s"],
              "success_indicators": ["navigates pits with momentum"]},
+            {"name": "Bonus_Room", "description": "Underground coin room — player enters through a warp pipe, collects coins in a hidden area, then exits through a pipe at the end",
+             "intended_emotion": "delight", "acceptable_range": [0.5, 1.0],
+             "expected_duration_sec": 8,
+             "visual_cues": ["underground dark background", "rows of coins", "brick ceiling", "exit pipe on right"],
+             "failure_indicators": ["misses most coins", "confused about exit"],
+             "success_indicators": ["collects majority of coins", "finds exit pipe quickly"]},
             {"name": "Mid_Gauntlet", "description": "Dense enemy section — deaths respawn to start, only death loops matter",
              "intended_emotion": "excited", "acceptable_range": [0.3, 0.8],
              "expected_duration_sec": 12,
@@ -238,6 +244,8 @@ def main():
         "transitions": [
             {"from_state": "Overworld_Start", "to_state": "Block_Discovery", "trigger": "reaches ? blocks"},
             {"from_state": "Block_Discovery", "to_state": "Platforming", "trigger": "moves past blocks"},
+            {"from_state": "Platforming", "to_state": "Bonus_Room", "trigger": "enters warp pipe"},
+            {"from_state": "Bonus_Room", "to_state": "Mid_Gauntlet", "trigger": "exits through pipe"},
             {"from_state": "Platforming", "to_state": "Mid_Gauntlet", "trigger": "reaches dense section"},
             {"from_state": "Mid_Gauntlet", "to_state": "Flagpole", "trigger": "reaches staircase"},
             {"from_state": "Platforming", "to_state": "Overworld_Start", "trigger": "player dies"},
@@ -290,7 +298,7 @@ def main():
     print(" ✓")
     
     # 5. Upload emotion frames
-    print("\n[5/8] Uploading simulated emotion frames (Presage @ 10 Hz)...")
+    print("\n[5/8] Uploading simulated emotion frames (MediaPipe @ 10 Hz)...")
     emotion_frames = generate_emotion_frames(NUM_CHUNKS * 10)
     # Send in batches of 100
     batch_size = 100

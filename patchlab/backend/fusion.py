@@ -4,18 +4,18 @@ PatchLab — Temporal Fusion Engine
 Aligns three async data streams onto a clean, unified 1-second Pandas DataFrame.
 
 Streams:
-  1. Presage emotion frames (~10 Hz)     → resample to 1 Hz by averaging each 1s window
+  1. MediaPipe emotion frames (~10 Hz)    → resample to 1 Hz by averaging each 1s window
   2. Apple Watch HR/HRV (~1 Hz)          → forward-fill to fill sub-second gaps
   3. Gemini DFA chunk results (variable) → forward-fill from transition timestamps
 
 Output DataFrame columns (one row = 1 second of gameplay):
     t, session_id, state, time_in_state_sec,
     frustration, confusion, delight, boredom, surprise, engagement,
-    hr, hrv_rmssd, hrv_sdnn, presage_hr, breathing_rate,
+    hr, hrv_rmssd, hrv_sdnn,
     intent_delta, dominant_emotion, data_quality
 
 Public API (called by main.py and snowflake_writer.py):
-    fuse_streams(presage_frames, watch_readings, chunk_results, dfa_config,
+    fuse_streams(emotion_frames, watch_readings, chunk_results, dfa_config,
                  session_id) -> pd.DataFrame
 
     fuse_timeline(...)  # legacy-compatible wrapper kept for existing backend calls
@@ -63,18 +63,18 @@ EMOTION_COLS = ["frustration", "confusion", "delight", "boredom", "surprise", "e
 # Input normalizers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _normalize_presage(frames: List[Any]) -> pd.DataFrame:
+def _normalize_emotion(frames: List[Any]) -> pd.DataFrame:
     """
-    Accept Presage data in any of three formats:
+    Accept emotion data in any of three formats:
       1. List[EmotionFrame] Pydantic objects  (from models.py)
       2. List[dict] with 'timestamp_sec' key  (from backend API)
       3. List[dict] with 'timestamp' key      (from spec / raw SDK)
 
     Returns a DataFrame with columns: [t_sec, frustration, confusion,
-    delight, boredom, surprise, engagement, presage_hr, breathing_rate]
+    delight, boredom, surprise, engagement]
     """
     if not frames:
-        return pd.DataFrame(columns=["t_sec"] + EMOTION_COLS + ["presage_hr", "breathing_rate"])
+        return pd.DataFrame(columns=["t_sec"] + EMOTION_COLS)
 
     rows = []
     for f in frames:
@@ -88,8 +88,6 @@ def _normalize_presage(frames: List[Any]) -> pd.DataFrame:
                 "boredom":      f.boredom,
                 "surprise":     f.surprise,
                 "engagement":   f.engagement,
-                "presage_hr":   f.heart_rate,
-                "breathing_rate": f.breathing_rate,
             }
         else:
             # Dict — handle both key names
@@ -102,8 +100,6 @@ def _normalize_presage(frames: List[Any]) -> pd.DataFrame:
                 "boredom":      float(f.get("boredom", 0.0)),
                 "surprise":     float(f.get("surprise", 0.0)),
                 "engagement":   float(f.get("engagement", 0.0)),
-                "presage_hr":   float(f.get("heart_rate", f.get("hr", 0.0))),
-                "breathing_rate": float(f.get("breathing_rate", 0.0)),
             }
         rows.append(row)
 
@@ -230,7 +226,7 @@ def _compute_intent_delta(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def fuse_streams(
-    presage_frames: List[Any],
+    emotion_frames: List[Any],
     watch_readings: List[Any],
     chunk_results: List[ChunkResult],
     dfa_config: Optional[DFAConfig] = None,
@@ -241,7 +237,7 @@ def fuse_streams(
     Fuse three data streams into a clean 1-Hz Pandas DataFrame.
 
     Args:
-        presage_frames:      Emotion readings from Presage at ~10 Hz.
+        emotion_frames:      Emotion readings from MediaPipe at ~10 Hz.
                              Accepts List[EmotionFrame] or List[dict] with
                              either 'timestamp' or 'timestamp_sec' keys.
         watch_readings:      Apple Watch HR/HRV at ~1 Hz.
@@ -255,23 +251,23 @@ def fuse_streams(
         pd.DataFrame with columns:
             t, session_id, state, time_in_state_sec,
             frustration, confusion, delight, boredom, surprise, engagement,
-            hr, hrv_rmssd, hrv_sdnn, presage_hr, breathing_rate,
+            hr, hrv_rmssd, hrv_sdnn,
             intent_delta, dominant_emotion, data_quality
     """
     logger.info(
-        f"[fusion] Fusing streams: {len(presage_frames)} presage frames, "
+        f"[fusion] Fusing streams: {len(emotion_frames)} emotion frames, "
         f"{len(watch_readings)} watch readings, {len(chunk_results)} chunks"
     )
 
     # ── Step 1: Normalize inputs into DataFrames ───────────────────────────
-    presage_df = _normalize_presage(presage_frames)
+    emotion_df = _normalize_emotion(emotion_frames)
     watch_df   = _normalize_watch(watch_readings)
 
     # ── Step 2: Determine total session length ─────────────────────────────
     if total_duration_sec is None:
         candidates = []
-        if not presage_df.empty:
-            candidates.append(int(presage_df["t_sec"].max()) + 1)
+        if not emotion_df.empty:
+            candidates.append(int(emotion_df["t_sec"].max()) + 1)
         if not watch_df.empty:
             candidates.append(int(watch_df["t_sec"].max()) + 1)
         if chunk_results:
@@ -281,26 +277,26 @@ def fuse_streams(
     total_sec = int(total_duration_sec)
     index_1hz = pd.RangeIndex(total_sec)  # 0, 1, 2, ... N-1 seconds
 
-    # ── Step 3: Resample Presage to 1 Hz by averaging within each second ──
-    if not presage_df.empty:
-        presage_df["t_bucket"] = presage_df["t_sec"].astype(int).clip(0, total_sec - 1)
-        presage_1hz = (
-            presage_df
+    # ── Step 3: Resample emotion data to 1 Hz by averaging within each second ──
+    if not emotion_df.empty:
+        emotion_df["t_bucket"] = emotion_df["t_sec"].astype(int).clip(0, total_sec - 1)
+        emotion_1hz = (
+            emotion_df
             .drop(columns=["t_sec"])
             .groupby("t_bucket")
             .mean()
             .reindex(index_1hz)
         )
         # Mark data quality: 1.0 if data present, 0.0 if gap
-        data_quality = presage_df.groupby("t_bucket")["frustration"].count().reindex(index_1hz).gt(0).astype(float)
+        data_quality = emotion_df.groupby("t_bucket")["frustration"].count().reindex(index_1hz).gt(0).astype(float)
         # Linearly interpolate short gaps (≤ 3s), forward/back-fill edges
-        presage_1hz = presage_1hz.interpolate(method="linear", limit=3).ffill().bfill().fillna(0.0)
+        emotion_1hz = emotion_1hz.interpolate(method="linear", limit=3).ffill().bfill().fillna(0.0)
     else:
-        logger.warning("[fusion] No Presage data — filling emotion columns with 0")
-        presage_1hz = pd.DataFrame(
+        logger.warning("[fusion] No emotion data — filling emotion columns with 0")
+        emotion_1hz = pd.DataFrame(
             0.0,
             index=index_1hz,
-            columns=EMOTION_COLS + ["presage_hr", "breathing_rate"],
+            columns=EMOTION_COLS,
         )
         data_quality = pd.Series(0.0, index=index_1hz)
 
@@ -337,11 +333,9 @@ def fuse_streams(
     fused["session_id"] = session_id
     fused["state"]      = state_series.values
 
-    # Emotion columns from Presage
+    # Emotion columns from MediaPipe
     for col in EMOTION_COLS:
-        fused[col] = presage_1hz[col].values if col in presage_1hz.columns else 0.0
-    fused["presage_hr"]     = presage_1hz["presage_hr"].values if "presage_hr" in presage_1hz.columns else 0.0
-    fused["breathing_rate"] = presage_1hz["breathing_rate"].values if "breathing_rate" in presage_1hz.columns else 0.0
+        fused[col] = emotion_1hz[col].values if col in emotion_1hz.columns else 0.0
 
     # Biometric columns from Watch
     fused["hr"]                = watch_1hz["hr"].values
@@ -368,14 +362,14 @@ def fuse_streams(
     fused = fused[[
         "t", "session_id", "state", "time_in_state_sec",
         "frustration", "confusion", "delight", "boredom", "surprise", "engagement",
-        "hr", "hrv_rmssd", "hrv_sdnn", "presage_hr", "breathing_rate",
+        "hr", "hrv_rmssd", "hrv_sdnn",
         "movement_variance", "intent_delta", "dominant_emotion", "data_quality",
     ]].copy()
 
     # Round floats for clean storage
     float_cols = [
         "frustration", "confusion", "delight", "boredom", "surprise", "engagement",
-        "hr", "hrv_rmssd", "hrv_sdnn", "presage_hr", "breathing_rate",
+        "hr", "hrv_rmssd", "hrv_sdnn",
         "intent_delta", "data_quality",
     ]
     fused[float_cols] = fused[float_cols].round(4)
@@ -389,7 +383,7 @@ def fuse_streams(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def fuse_timeline(
-    presage_frames: List[Any],
+    emotion_frames: List[Any],
     dfa_transitions: List[Dict[str, Any]],
     watch_readings: List[Any],
     total_duration_sec: int,
@@ -426,7 +420,7 @@ def fuse_timeline(
     )
 
     df = fuse_streams(
-        presage_frames=presage_frames,
+        emotion_frames=emotion_frames,
         watch_readings=watch_readings,
         chunk_results=[dummy_chunk],
         dfa_config=dfa_config,
@@ -448,8 +442,6 @@ def fuse_timeline(
             boredom=row["boredom"],
             surprise=row["surprise"],
             engagement=row["engagement"],
-            presage_hr=row["presage_hr"],
-            breathing_rate=row["breathing_rate"],
             watch_hr=row["hr"],
             hrv_rmssd=row["hrv_rmssd"],
             hrv_sdnn=row["hrv_sdnn"],

@@ -37,6 +37,14 @@ DFA_STATES = [
         "expected_duration_sec": 15,
     },
     {
+        "name": "bonus_room",
+        "description": "Underground coin room — player enters through a warp pipe, collects coins in a hidden area, then exits.",
+        "visual_cues": ["underground dark background", "rows of coins", "brick ceiling", "exit pipe"],
+        "intended_emotion": "delight",
+        "acceptable_range": [0.5, 1.0],
+        "expected_duration_sec": 8,
+    },
+    {
         "name": "flagpole",
         "description": "Staircase approach and flagpole grab — victory moment",
         "visual_cues": ["staircase blocks", "flagpole", "castle"],
@@ -130,6 +138,8 @@ def main():
             "dfa_states": DFA_STATES,
             "transitions": [
                 {"from_state": "overworld_start", "to_state": "platforming", "trigger": "player_passes_initial_area"},
+                {"from_state": "platforming", "to_state": "bonus_room", "trigger": "player_enters_warp_pipe"},
+                {"from_state": "bonus_room", "to_state": "flagpole", "trigger": "player_exits_bonus_room"},
                 {"from_state": "platforming", "to_state": "flagpole", "trigger": "player_reaches_staircase"},
                 {"from_state": "platforming", "to_state": "overworld_start", "trigger": "player_dies"},
             ],

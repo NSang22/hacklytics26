@@ -62,7 +62,7 @@ class SnowflakeClient:
     def create_schema(self):
         statements = [
             """
-            CREATE TABLE IF NOT EXISTS bronze_presage_emotions (
+            CREATE TABLE IF NOT EXISTS bronze_mediapipe_emotions (
                 id              STRING        DEFAULT UUID_STRING(),
                 session_id      STRING        NOT NULL,
                 project_id      STRING        NOT NULL,
@@ -181,9 +181,9 @@ class SnowflakeClient:
         for stmt in statements:
             self._execute(stmt)
 
-    def insert_presage_batch(self, session_id: str, project_id: str, readings: list[dict]):
+    def insert_emotion_batch(self, session_id: str, project_id: str, readings: list[dict]):
         sql = """
-            INSERT INTO bronze_presage_emotions
+            INSERT INTO bronze_mediapipe_emotions
                 (session_id, project_id, recorded_at,
                  frustration, confusion, delight, boredom, surprise, engagement,
                  camera_hr, camera_br, raw_payload)

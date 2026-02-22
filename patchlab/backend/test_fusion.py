@@ -17,8 +17,8 @@ dfa = DFAConfig(states=[
     DFAState(name='boss',      intended_emotion='frustration', acceptable_range=(0.5,  0.9),  expected_duration_sec=20),
 ])
 
-# Presage: 10 Hz for 60 seconds = 600 readings (dict format with 'timestamp' key)
-presage = [
+# MediaPipe: 10 Hz for 60 seconds = 600 readings (dict format with 'timestamp' key)
+emotion_frames = [
     {
         "timestamp":   t / 10.0,
         "frustration": round(random.uniform(0.1, 0.4), 3),
@@ -70,7 +70,7 @@ chunk_results = [
 
 # ── Run fusion ────────────────────────────────────────────────────────────────
 df = fuse_streams(
-    presage_frames=presage,
+    emotion_frames=emotion_frames,
     watch_readings=watch,
     chunk_results=chunk_results,
     dfa_config=dfa,
@@ -90,11 +90,11 @@ print(f"\nState value counts:\n{df['state'].value_counts().to_string()}")
 print(f"\nIntent delta stats:\n{df['intent_delta'].describe().to_string()}")
 
 # Assertions
-assert df.shape == (60, 19), f"Expected (60, 19), got {df.shape}"
+assert df.shape == (60, 17), f"Expected (60, 17), got {df.shape}"
 assert list(df.columns) == [
     "t", "session_id", "state", "time_in_state_sec",
     "frustration", "confusion", "delight", "boredom", "surprise", "engagement",
-    "hr", "hrv_rmssd", "hrv_sdnn", "presage_hr", "breathing_rate", "movement_variance",
+    "hr", "hrv_rmssd", "hrv_sdnn", "movement_variance",
     "intent_delta", "dominant_emotion", "data_quality",
 ], f"Column mismatch\nGot: {list(df.columns)}"
 
@@ -106,7 +106,7 @@ assert 'boss'     in df['state'].values, "Expected 'boss' state"
 # Watch HR populated (not all zero)
 assert df['hr'].max() > 0, "Watch HR should not be all zero"
 
-# Presage emotions populated
+# MediaPipe emotions populated
 assert df['frustration'].max() > 0, "Frustration should not be all zero"
 
 # intent_delta is non-negative

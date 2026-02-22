@@ -3,7 +3,7 @@ Webcam Capture Module — captures webcam video using OpenCV and integrates
 with FaceAnalyzer (MediaPipe Face Mesh) for real-time facial expression,
 Action Unit, and gaze tracking.
 
-Replaces the former Presage SDK stub with on-device MediaPipe analysis.
+On-device MediaPipe face analysis for emotion detection.
 """
 
 from __future__ import annotations
@@ -93,17 +93,15 @@ class EmotionReading:
 
 
 class WebcamCapture:
-    """Captures webcam feed, records video, and runs Presage emotion detection."""
+    """Captures webcam feed, records video, and runs MediaPipe emotion detection."""
 
     def __init__(
         self,
         camera_index: int = 0,
-        presage_api_key: str = "",
         emotion_hz: int = 10,
         face_analyzer: Optional[Any] = None,
     ):
         self.camera_index = camera_index
-        self.presage_api_key = presage_api_key or os.getenv("PRESAGE_API_KEY", "")
         self.emotion_hz = emotion_hz
         self.face_analyzer = face_analyzer  # FaceAnalyzer instance (shared)
 
@@ -127,7 +125,7 @@ class WebcamCapture:
         self._writer: Optional[cv2.VideoWriter] = None
         self._video_path: Optional[str] = None
 
-        # Face Analyzer (replaces Presage)
+        # Face Analyzer (MediaPipe)
         self._owns_analyzer = False  # True if we created the analyzer
 
     def start(
@@ -188,6 +186,9 @@ class WebcamCapture:
     def start_recording(self) -> Optional[str]:
         """Begin recording video on an already-running camera.
 
+        Resets the emotion time origin so timestamps start at 0 from the
+        moment recording begins (not from when the preview first opened).
+
         Returns:
             Path to the video file, or None if camera not running.
         """
@@ -195,6 +196,14 @@ class WebcamCapture:
             return None
         if self._recording:
             return self._video_path
+
+        # Reset time origin so emotion timestamps are 0-based from record start
+        self._start_time = time.monotonic()
+
+        # Discard any emotion readings accumulated during preview
+        with self._emotion_lock:
+            self._emotion_buffer.clear()
+
         self._begin_video_writer()
         return self._video_path
 

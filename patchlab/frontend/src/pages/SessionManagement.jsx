@@ -179,7 +179,7 @@ export default function SessionManagement() {
                 Screen {collectionStatus.chunks_uploaded > 0 ? '● Live' : '○ Waiting'}
               </span>
               <span className={`badge ${collectionStatus.emotion_frames > 0 ? 'badge-pass' : 'badge-nodata'}`}>
-                Presage {collectionStatus.emotion_frames > 0 ? '● Live' : '○ Waiting'}
+                MediaPipe {collectionStatus.emotion_frames > 0 ? '● Live' : '○ Waiting'}
               </span>
               <span className={`badge ${collectionStatus.watch_readings > 0 ? 'badge-pass' : 'badge-nodata'}`}>
                 Watch {collectionStatus.watch_readings > 0 ? '● Live' : '○ Waiting'}
