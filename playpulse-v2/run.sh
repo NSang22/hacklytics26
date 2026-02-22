@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# PlayPulse v2 — Run Script (bash)
+# PatchLab — Run Script (bash)
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
-echo "=== PlayPulse v2 ==="
+echo "=== PatchLab ==="
 
 # ── Install desktop dependencies if needed ───────────
 if [ -f "$DIR/desktop/requirements.txt" ]; then

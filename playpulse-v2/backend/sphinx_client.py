@@ -2,7 +2,7 @@
 Sphinx client — proxy for Sphinx natural-language query engine.
 
 Translates user plain-English questions into structured queries over
-the PlayPulse data, returning markdown-formatted answers.
+the PatchLab data, returning markdown-formatted answers.
 
 STUB — returns canned responses.
 """
