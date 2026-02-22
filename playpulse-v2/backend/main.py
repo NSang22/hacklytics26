@@ -333,28 +333,21 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
         if chunk_index > 0 and session_id in chunk_results:
             prev_cr = chunk_results[session_id].get(chunk_index - 1)
             if prev_cr:
-                last_obs = prev_cr.states_observed[-1] if prev_cr.states_observed else None
-                # Count cumulative deaths from all prior chunks
-                cumulative_deaths = 0
-                for i in range(chunk_index):
-                    cr = chunk_results[session_id].get(i)
-                    if cr:
-                        cumulative_deaths += sum(
-                            1 for ev in cr.events if "death" in ev.label.lower()
-                        )
                 prev_context = {
-                    "end_state": last_obs.state if last_obs else "unknown",
-                    "end_status": prev_cr.notes,
-                    "cumulative_deaths": cumulative_deaths,
+                    "end_state": prev_cr.end_state or "unknown",
+                    "end_status": prev_cr.end_status,
+                    "cumulative_deaths": prev_cr.cumulative_deaths,
                 }
 
+        chunk_dur = s.get("chunk_duration_sec", 15.0)
         result = await cp_process_chunk(
-            gemini_client=gemini,
-            chunk_index=chunk_index,
             video_bytes=video_bytes,
+            chunk_index=chunk_index,
+            chunk_start_sec=chunk_index * chunk_dur,
             dfa_config=p["dfa_config"],
             previous_context=prev_context,
             session_id=session_id,
+            gemini_client=gemini,
         )
         if session_id not in chunk_results:
             chunk_results[session_id] = {}
@@ -362,14 +355,13 @@ async def _process_chunk_bg(session_id: str, chunk_index: int, video_bytes: byte
         s["chunks_processed"] = len(chunk_results[session_id])
 
         # Write gameplay events to Snowflake bronze layer
-        chunk_dur = s.get("chunk_duration_sec", 15.0)
         await snowflake.store_gameplay_events(
             session_id=session_id,
             chunk_index=chunk_index,
             chunk_start_sec=chunk_index * chunk_dur,
             events=[
-                {"label": ev.label, "description": ev.description,
-                 "timestamp_sec": ev.timestamp_sec, "severity": ev.severity}
+                {"type": ev.type, "description": ev.description,
+                 "timestamp_sec": ev.timestamp_sec, "state": ev.state}
                 for ev in result.events
             ],
         )
@@ -528,14 +520,32 @@ async def get_chunks(session_id: str):
         cr = crs[idx]
         out.append({
             "chunk_index": cr.chunk_index,
-            "chunk_start_sec": cr.chunk_start_sec,
-            "notes": cr.notes,
+            "time_range_sec": cr.time_range_sec,
+            "end_state": cr.end_state,
+            "end_status": cr.end_status,
+            "chunk_summary": cr.chunk_summary,
             "states_observed": [
-                {"state": o.state, "confidence": o.confidence, "timestamp_in_chunk_sec": o.timestamp_in_chunk_sec}
+                {
+                    "state_name": o.state_name,
+                    "entered_at_sec": o.entered_at_sec,
+                    "exited_at_sec": o.exited_at_sec,
+                    "duration_sec": o.duration_sec,
+                    "player_behavior": o.player_behavior,
+                    "progress": o.progress,
+                }
                 for o in cr.states_observed
             ],
+            "transitions": [
+                {
+                    "from_state": t.from_state,
+                    "to_state": t.to_state,
+                    "timestamp_sec": t.timestamp_sec,
+                    "confidence": t.confidence,
+                }
+                for t in cr.transitions
+            ],
             "events": [
-                {"label": e.label, "description": e.description, "timestamp_sec": e.timestamp_sec, "severity": e.severity}
+                {"type": e.type, "description": e.description, "timestamp_sec": e.timestamp_sec, "state": e.state}
                 for e in cr.events
             ],
         })

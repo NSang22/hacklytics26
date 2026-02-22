@@ -1,10 +1,11 @@
 """
 Gemini client — wraps Google's Gemini API for:
 
-  1. process_chunk()            — analyse a 15-sec gameplay video chunk (gemini-2.0-flash)
-  2. analyze_optimal_playthrough() — produce the "intent" reference (gemini-2.5-flash)
-  3. generate_session_insights()   — markdown summary of one session (gemini-2.5-flash)
-  4. generate_cross_tester_insights() — aggregate comparison (gemini-2.5-flash)
+  1. process_chunk()            — analyse a 15-sec gameplay video chunk (gemini-2.5-flash)
+  2. process_frames()           — DFA frame-by-frame analysis (gemini-2.5-flash)
+  3. analyze_optimal_playthrough() — produce the "intent" reference (gemini-2.5-flash)
+  4. generate_session_insights()   — markdown summary of one session (gemini-2.5-flash)
+  5. generate_cross_tester_insights() — aggregate comparison (gemini-2.5-flash)
 
 Uses different models per task for cost/quality tradeoff.
 STUB — returns plausible mock data so the rest of the pipeline runs
@@ -21,7 +22,7 @@ from typing import Any, Dict, List, Optional
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Model selection per task ──────────────────────────────────
-MODEL_CHUNK_ANALYSIS = "gemini-2.0-flash"       # runs every 15s during gameplay
+MODEL_CHUNK_ANALYSIS = "gemini-2.5-flash"       # runs every 15s during gameplay
 MODEL_OPTIMAL_ANALYSIS = "gemini-2.5-flash"      # runs once for optimal playthrough
 MODEL_INSIGHT_GENERATION = "gemini-2.5-flash"    # post-session insight generation
 
@@ -70,6 +71,68 @@ class GeminiClient:
                 print(f"[gemini] Chunk analysis error: {e}, falling back to stub")
 
         return self._stub_chunk(prompt)
+
+    # ── Frame-based DFA analysis (gemini-2.5-flash) ─────────
+    async def process_frames(
+        self,
+        frames: List[bytes],
+        prompt: str,
+        session_id: str = "",
+    ) -> Dict:
+        """Send extracted JPEG frames as inline images to Gemini for DFA analysis.
+
+        Instead of uploading a video file, sends individual frames as inline
+        image parts. This gives Gemini explicit frame-by-frame sequential
+        context for detecting state transitions (DFA transition function style).
+
+        Uses MODEL_CHUNK_ANALYSIS (gemini-2.5-flash).
+        Falls back to stub if no API key.
+        """
+        if self._client and frames:
+            try:
+                return await self._call_gemini_frames(
+                    model=MODEL_CHUNK_ANALYSIS,
+                    frames=frames,
+                    prompt=prompt,
+                )
+            except Exception as e:
+                print(f"[gemini] Frame analysis error: {e}, falling back to stub")
+
+        return self._stub_chunk(prompt)
+
+    async def _call_gemini_frames(
+        self, model: str, frames: List[bytes], prompt: str,
+    ) -> Dict:
+        """Send frames as inline image parts + text prompt to Gemini.
+
+        Each frame is sent as a JPEG image Part, followed by the text prompt.
+        Gemini processes the frames in order, enabling DFA-style sequential
+        state transition detection.
+        """
+        from google.genai import types
+
+        print(f"[gemini] Sending {len(frames)} inline frames to {model} for DFA transition analysis...")
+
+        contents = []
+        for frame_bytes in frames:
+            contents.append(
+                types.Part.from_bytes(data=frame_bytes, mime_type="image/jpeg")
+            )
+        contents.append(prompt)
+
+        response = self._client.models.generate_content(
+            model=model,
+            contents=contents,
+        )
+
+        text = response.text
+        # Extract JSON from response
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+
+        return json.loads(text.strip())
 
     # ── Optimal playthrough analysis (gemini-2.5-flash) ─────
     async def analyze_optimal_playthrough(
