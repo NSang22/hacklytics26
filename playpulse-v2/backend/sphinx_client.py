@@ -1,5 +1,10 @@
 """
-SphinxClient — natural language queries to Snowflake data via Sphinx AI
+Sphinx client — proxy for Sphinx natural-language query engine.
+
+Translates user plain-English questions into structured queries over
+the PatchLab data, returning markdown-formatted answers.
+
+STUB — returns canned responses.
 """
 
 import subprocess

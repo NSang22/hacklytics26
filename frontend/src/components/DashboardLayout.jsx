@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import '../playpulse.css';
+import '../patchlab.css';
 
 const NAV_ITEMS = [
   { to: '/dashboard',   label: 'Demo',       icon: '🎮', end: true },

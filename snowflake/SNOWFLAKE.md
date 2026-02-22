@@ -1,8 +1,8 @@
-# PlayPulse — Snowflake Data Warehouse
+# PatchLab — Snowflake Data Warehouse
 
 ## Overview
 
-PlayPulse uses a **medallion architecture** (Bronze → Silver → Gold) to store and aggregate playtest telemetry across three sensor sources: Presage (facial emotions), Gemini (gameplay video analysis), and Apple Watch (heart rate / HRV).
+PatchLab uses a **medallion architecture** (Bronze → Silver → Gold) to store and aggregate playtest telemetry across three sensor sources: MediaPipe (facial emotions), Gemini (gameplay video analysis), and Apple Watch (heart rate / HRV).
 
 ---
 
@@ -141,7 +141,7 @@ This powers the **heatmap** (Query 1) and feeds directly into Sphinx queries.
 SNOWFLAKE_ACCOUNT=     # e.g. abc12345.us-east-1
 SNOWFLAKE_USER=        # your Snowflake username
 SNOWFLAKE_PASSWORD=    # your Snowflake password
-SNOWFLAKE_DATABASE=    # default: PLAYPULSE
+SNOWFLAKE_DATABASE=    # default: PATCHLAB_DB
 SNOWFLAKE_SCHEMA=      # default: PUBLIC
 SNOWFLAKE_WAREHOUSE=   # default: COMPUTE_WH
 SNOWFLAKE_ROLE=        # optional

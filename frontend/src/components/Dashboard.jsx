@@ -378,7 +378,7 @@ export default function Dashboard() {
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             <span className="text-xs text-white/50 tracking-widest uppercase">Demo Session</span>
           </div>
-          <span className="text-xs text-white/20 font-mono">SMB1-1 · Judge Demo · ID: aura_8f2d</span>
+          <span className="text-xs text-white/20 font-mono">SMB1-1 · Judge Demo · ID: patchlab_8f2d</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-white/30">72s recorded</span>

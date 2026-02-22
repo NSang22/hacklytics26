@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PlayPulse v2 — Launch everything with one command (macOS/Linux)
+# PatchLab — Launch everything with one command (macOS/Linux)
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV="$DIR/.venv"

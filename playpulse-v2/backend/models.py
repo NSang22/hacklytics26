@@ -1,5 +1,5 @@
 """
-PlayPulse v2 — Pydantic models.
+PatchLab — Pydantic models.
 
 Covers: DFA config, projects, sessions, events, emotions, verdicts, fused rows.
 """

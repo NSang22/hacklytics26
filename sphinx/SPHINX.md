@@ -1,4 +1,4 @@
-# PlayPulse — Sphinx Explorer
+# PatchLab — Sphinx Explorer
 
 ## What Sphinx Does
 
@@ -105,7 +105,7 @@ temp.ipynb (sphinx writes code here)      Terminal (you see this)
 
 ## Snowflake Data Warehouse — What Sphinx Queries
 
-PlayPulse stores all playtest data in Snowflake using three layers.
+PatchLab stores all playtest data in Snowflake using three layers.
 
 ### Bronze — raw sensor data
 
