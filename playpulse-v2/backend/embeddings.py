@@ -1,5 +1,5 @@
 """
-Crashout — Embeddings + VectorAI Writer
+PatchLab — Embeddings + VectorAI Writer
 
 Slices the fused 1-Hz DataFrame into 10-second windows, converts each
 window into a structured text string, embeds it with bge-large-en

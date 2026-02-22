@@ -1,5 +1,5 @@
 """
-Crashout — Snowflake Writer (Medallion Architecture)
+PatchLab — Snowflake Writer (Medallion Architecture)
 
 Writes session data to Snowflake in three layers:
 

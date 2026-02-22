@@ -1,5 +1,5 @@
 """
-Crashout — Temporal Fusion Engine
+PatchLab — Temporal Fusion Engine
 
 Aligns three async data streams onto a clean, unified 1-second Pandas DataFrame.
 

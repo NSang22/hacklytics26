@@ -19,7 +19,7 @@ const FEATURES = [
   {
     
     title: 'Intent vs Reality Verdicts',
-    desc: 'Developers define the intended emotion per game state. CrashOut compares actual player affect to that intent and issues PASS / WARN / FAIL verdicts automatically.',
+    desc: 'Developers define the intended emotion per game state. PatchLab compares actual player affect to that intent and issues PASS / WARN / FAIL verdicts automatically.',
   },
   {
     
@@ -77,7 +77,7 @@ export default function WhatIsIt() {
         </h2>
         <p className="mt-6 max-w-2xl mx-auto text-white text-lg leading-relaxed">
           Studios record what players <span className="text-white font-semibold">do</span>.
-          CrashOut measures what players <span className="text-white font-semibold">feel</span>.
+          PatchLab measures what players <span className="text-white font-semibold">feel</span>.
           <br className="hidden md:block" />
           A real-time multimodal playtest engine that measures player emotion, compares it to developer intent, and automatically identifies broken game mechanics.
         </p>

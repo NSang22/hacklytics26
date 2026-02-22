@@ -4,12 +4,12 @@ import { PiStarFourBold } from 'react-icons/pi'
 
 const FAQ_DATA = [
   {
-    q: 'What input data does CrashOut need?',
+    q: 'What input data does PatchLab need?',
     a: 'Three streams: gameplay video (screen capture at 30 FPS, chunked into 10-second segments), webcam footage processed through the Presage SDK for facial affect (frustration, confusion, delight, boredom at 10 Hz), and optionally Apple Watch data for heart rate and HRV at 1 Hz. You also provide your intended emotional arc per game state before the session.',
   },
   {
     q: 'How does it detect game states without instrumenting my game?',
-    a: 'CrashOut uses Gemini Vision to watch your gameplay video chunks and extract DFA (Deterministic Finite Automaton) state transitions in real time. You define the states and visual cues up front — like "First Pit: gap in ground, sky visible below" — and Gemini matches frames to those states. No game SDK or code changes required.',
+    a: 'PatchLab uses Gemini Vision to watch your gameplay video chunks and extract DFA (Deterministic Finite Automaton) state transitions in real time. You define the states and visual cues up front — like "First Pit: gap in ground, sky visible below" — and Gemini matches frames to those states. No game SDK or code changes required.',
   },
   {
     q: 'What is a "Playtest Health Score"?',
@@ -17,7 +17,7 @@ const FAQ_DATA = [
   },
   {
     q: 'What are PASS / WARN / FAIL verdicts?',
-    a: 'For each DFA state, CrashOut compares the intended emotion and acceptable range you defined against the actual measured affect. If the dominant emotion matches intent and falls within range, it\'s PASS. If it\'s borderline, it\'s WARN. If the actual emotion is far off — like players being frustrated when you intended delight — it\'s FAIL. This turns subjective "does our game feel right?" into objective, researchable data.',
+    a: 'For each DFA state, PatchLab compares the intended emotion and acceptable range you defined against the actual measured affect. If the dominant emotion matches intent and falls within range, it\'s PASS. If it\'s borderline, it\'s WARN. If the actual emotion is far off — like players being frustrated when you intended delight — it\'s FAIL. This turns subjective "does our game feel right?" into objective, researchable data.',
   },
   {
     q: 'What is Sphinx AI?',
@@ -29,11 +29,11 @@ const FAQ_DATA = [
   },
   {
     q: 'What happens if the Apple Watch isn\'t available?',
-    a: 'CrashOut degrades gracefully. The core pipeline — Gemini Vision DFA extraction plus Presage facial affect — works without any wearable. Apple Watch HR/HRV is an additive physiological signal; if it\'s missing, emotion + video data still produce full verdicts and health scores.',
+    a: 'PatchLab degrades gracefully. The core pipeline — Gemini Vision DFA extraction plus Presage facial affect — works without any wearable. Apple Watch HR/HRV is an additive physiological signal; if it\'s missing, emotion + video data still produce full verdicts and health scores.',
   },
   {
     q: 'How is this different from just watching playtest recordings?',
-    a: 'Watching recordings tells you what happened — CrashOut tells you what players felt and whether it matched what you intended. A tester might complete a level fine but be deeply confused the whole time. That gap is invisible on video but immediately visible in the intent delta. Multiply that across 50 testers and you get statistical certainty about design problems.',
+    a: 'Watching recordings tells you what happened — PatchLab tells you what players felt and whether it matched what you intended. A tester might complete a level fine but be deeply confused the whole time. That gap is invisible on video but immediately visible in the intent delta. Multiply that across 50 testers and you get statistical certainty about design problems.',
   },
 ]
 

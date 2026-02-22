@@ -1,5 +1,5 @@
 """
-Crashout — Chunk Processor
+PatchLab — Chunk Processor
 
 Receives raw .webm / .mp4 gameplay video chunks from the FastAPI backend,
 extracts frames at CHUNK_FPS using OpenCV, and sends them to Gemini Vision

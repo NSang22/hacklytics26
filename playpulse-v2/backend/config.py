@@ -1,5 +1,5 @@
 """
-Crashout — Shared configuration.
+PatchLab — Shared configuration.
 
 Single place to flip MOCK_MODE and load all environment variables.
 Set MOCK_MODE = True during development to avoid burning API quotas.
@@ -33,14 +33,14 @@ CHUNK_FPS: int = int(os.getenv("CHUNK_FPS", "2"))   # frames per second to sampl
 SNOWFLAKE_ACCOUNT: str = os.getenv("SNOWFLAKE_ACCOUNT", "")
 SNOWFLAKE_USER: str = os.getenv("SNOWFLAKE_USER", "")
 SNOWFLAKE_PASSWORD: str = os.getenv("SNOWFLAKE_PASSWORD", "")
-SNOWFLAKE_WAREHOUSE: str = os.getenv("SNOWFLAKE_WAREHOUSE", "CRASHOUT_WH")
-SNOWFLAKE_DATABASE: str = os.getenv("SNOWFLAKE_DATABASE", "CRASHOUT_DB")
-SNOWFLAKE_SCHEMA: str = os.getenv("SNOWFLAKE_SCHEMA", "CRASHOUT_SCHEMA")
+SNOWFLAKE_WAREHOUSE: str = os.getenv("SNOWFLAKE_WAREHOUSE", "PatchLab_WH")
+SNOWFLAKE_DATABASE: str = os.getenv("SNOWFLAKE_DATABASE", "PatchLab_DB")
+SNOWFLAKE_SCHEMA: str = os.getenv("SNOWFLAKE_SCHEMA", "PatchLab_SCHEMA")
 
 # ── VectorAI ──────────────────────────────────────────────────────────────────
 VECTORAI_URL: str = os.getenv("VECTORAI_URL", "")
 VECTORAI_API_KEY: str = os.getenv("VECTORAI_API_KEY", "")
-VECTORAI_COLLECTION: str = os.getenv("VECTORAI_COLLECTION", "crashout_embeddings")
+VECTORAI_COLLECTION: str = os.getenv("VECTORAI_COLLECTION", "PatchLab_embeddings")
 
 # ── Pipeline tuning ───────────────────────────────────────────────────────────
 CHUNK_DURATION_SEC: float = float(os.getenv("CHUNK_DURATION_SEC", "10"))

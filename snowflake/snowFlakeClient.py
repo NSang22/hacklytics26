@@ -21,9 +21,9 @@ class SnowflakeClient:
             "account":   account   or os.environ["SNOWFLAKE_ACCOUNT"],
             "user":      user      or os.environ["SNOWFLAKE_USER"],
             "password":  password  or os.environ["SNOWFLAKE_PASSWORD"],
-            "database":  database  or os.environ.get("SNOWFLAKE_DATABASE", "CRASHOUT_DB"),
-            "schema":    schema    or os.environ.get("SNOWFLAKE_SCHEMA",   "CRASHOUT_SCHEMA"),
-            "warehouse": warehouse or os.environ.get("SNOWFLAKE_WAREHOUSE", "CRASHOUT_WH"),
+            "database":  database  or os.environ.get("SNOWFLAKE_DATABASE", "PatchLab_DB"),
+            "schema":    schema    or os.environ.get("SNOWFLAKE_SCHEMA",   "PatchLab_SCHEMA"),
+            "warehouse": warehouse or os.environ.get("SNOWFLAKE_WAREHOUSE", "PatchLab_WH"),
         }
         resolved_role = role or os.environ.get("SNOWFLAKE_ROLE")
         if resolved_role:

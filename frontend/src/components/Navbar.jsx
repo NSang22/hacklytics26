@@ -4,7 +4,7 @@ export default function Navbar() {
       <div className="flex items-center gap-3">
         <img src="/logo.png" alt="Logo" className="w-18 h-auto" />
         <span className="text-white font-bold text-3xl tracking-tight">
-          Patch Lab
+          PatchLab
         </span>
       </div>
 

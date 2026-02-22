@@ -1,5 +1,5 @@
 """
-End-to-end integration test for the Crashout pipeline.
+End-to-end integration test for the PatchLab pipeline.
 
 Tests the full HTTP flow:
   1. Create project (with DFA config)

@@ -27,7 +27,7 @@ export default function DashboardLayout() {
             className="flex items-center gap-2 hover:opacity-70 transition-opacity mr-2"
           >
             <img src="/logo.png" alt="" className="w-5 h-5" />
-            <span className="text-white font-bold text-sm tracking-wide">CrashOut</span>
+            <span className="text-white font-bold text-sm tracking-wide">PatchLab</span>
           </button>
 
           <div className="h-5 w-px bg-white/10" />
