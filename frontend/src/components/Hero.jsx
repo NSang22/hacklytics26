@@ -147,22 +147,26 @@ export default function Hero() {
 
         {/* Bottom Dock */}
         <div ref={dockRef} className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2 rounded-2xl bg-white/10 backdrop-blur-md border border-white/30 shadow-[0_0px_20px_rgba(0,0,0,0.2)]">
-          {/* Our logo — black bg */}
-          <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center flex-shrink-0 overflow-hidden">
-            <img src="/logo.png" alt="PlayPulse" className="w-8 h-8 object-contain" />
-          </div>
           {[
+            { src: '/apps.png',     alt: 'Apps'     },
             { src: '/safari.png',   alt: 'Safari'   },
+            { src: '/settings.png', alt: 'Settings' },
             { src: '/music.png',    alt: 'Music'    },
             { src: '/steam.png',    alt: 'Steam'    },
-            { src: '/apps.png',     alt: 'Apps'     },
-            { src: '/settings.png', alt: 'Settings' },
           ].map(({ src, alt }) => (
             <div key={alt} className="w-11 h-11 rounded-xl overflow-hidden flex-shrink-0">
               <img src={src} alt={alt} className="w-full h-full object-cover" />
             </div>
+            
+            
           ))}
+          {/* Our logo — black bg */}
+          <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center flex-shrink-0 overflow-hidden">
+            <img src="/logo.png" alt="PlayPulse" className="w-20 h-20 object-contain" />
+          </div>
         </div>
+
+          
 
       </div>
 

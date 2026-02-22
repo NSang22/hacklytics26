@@ -303,14 +303,12 @@ function HealthRing({ score }) {
 }
 
 function VerdictCard({ verdict }) {
-  const bg = verdict.verdict === 'PASS' ? 'rgba(34,197,94,0.08)'
-           : verdict.verdict === 'WARN' ? 'rgba(245,158,11,0.08)'
-           : 'rgba(239,68,68,0.08)'
+  const bg = 'rgba(255,255,255,0.06)'
 
   return (
     <div
-      className="rounded-2xl p-4 border transition-all hover:scale-[1.02]"
-      style={{ background: bg, borderColor: verdict.color + '30' }}
+      className="rounded-3xl p-5 border border-white/15 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)] transition-all hover:scale-[1.02]"
+      style={{ background: bg, borderColor: verdict.color + '35' }}
     >
       <div className="flex items-start justify-between mb-3">
         <div>
@@ -363,51 +361,81 @@ export default function Dashboard() {
   const painPoints = [...VERDICTS].sort((a, b) => b.delta - a.delta)
 
   return (
-    <div className="min-h-screen text-white font-mono" style={{ background: '#080a0f' }}>
+    <div
+      className="min-h-screen text-white"
+      style={{
+        backgroundImage: "url('/background2.jpg')",
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+      }}
+    >
+      {/* Dark overlay */}
+      <div className="fixed inset-0 bg-gradient-to-t from-black/60 to-black/95 pointer-events-none" />
 
-      {/* Subtle grid background */}
-      <div className="fixed inset-0 pointer-events-none" style={{
-        backgroundImage: 'linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)',
-        backgroundSize: '40px 40px'
-      }} />
+      {/* Pink ambient glows */}
+      <div className="fixed -top-40 -left-40 w-[600px] h-[600px] bg-[#ec4899]/10 blur-[160px] rounded-full pointer-events-none" />
+      <div className="fixed -bottom-40 -right-40 w-[500px] h-[500px] bg-[#ec4899]/8 blur-[140px] rounded-full pointer-events-none" />
 
-      {/* Status bar */}
-      <div className="px-6 py-3 flex items-center justify-between border-b border-white/5">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-xs text-white/50 tracking-widest uppercase">Demo Session</span>
+      {/* Unified session header — no fill, floats on the page background */}
+      <div className="relative z-10 max-w-5xl mx-auto px-6 pt-6 pb-2">
+        {/* Status row */}
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#ec4899] animate-pulse shadow-[0_0_8px_rgba(236,72,153,0.9)]" />
+              <span className="text-xs text-white/70 tracking-widest uppercase font-mono">Demo Session</span>
+            </div>
+            <span className="text-white/70 font-mono text-xs select-none">·</span>
+            <span className="text-xs text-white/70 font-mono">SMB1-1 · Judge Demo · ID: aura_8f2d</span>
           </div>
-          <span className="text-xs text-white/20 font-mono">SMB1-1 · Judge Demo · ID: aura_8f2d</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-white/30">72s recorded</span>
-          <div className="px-3 py-1.5 rounded-lg text-xs font-bold tracking-widest uppercase border"
-            style={{ background: 'rgba(34,197,94,0.1)', borderColor: 'rgba(34,197,94,0.2)', color: '#22c55e' }}>
-            Processing Complete
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-white/70 font-mono">72s recorded</span>
+            <div
+              className="px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase"
+              style={{ background: 'rgba(236,72,153,0.10)', border: '1px solid rgba(236,72,153,0.25)', color: 'rgba(236,72,153,0.90)' }}
+            >
+              Processing Complete
+            </div>
           </div>
         </div>
+
+        {/* Tab pills — inline, no background strip */}
+        <div className="flex items-center gap-2">
+          {[['session', 'Session Review'], ['cross', 'Cross-Tester'], ['sphinx', 'Sphinx AI']].map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className="px-5 py-2 text-xs tracking-wider font-semibold transition-all duration-200 rounded-full"
+              style={{
+                color: activeTab === id ? 'white' : 'rgba(255,255,255,0.30)',
+                background: activeTab === id ? 'rgba(236,72,153,0.18)' : 'rgba(255,255,255,0.04)',
+                border: activeTab === id ? '1px solid rgba(236,72,153,0.40)' : '1px solid rgba(255,255,255,0.07)',
+                boxShadow: activeTab === id ? '0 0 18px rgba(236,72,153,0.20)' : 'none',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+
+          {/* Subtle divider + stat inline */}
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[10px] text-white/70 font-mono tracking-widest uppercase">Health</span>
+            <span
+              className="text-xs font-bold font-mono"
+              style={{ color: HEALTH_SCORE >= 70 ? '#22c55e' : HEALTH_SCORE >= 45 ? '#f59e0b' : '#ef4444' }}
+            >
+              {HEALTH_SCORE}
+            </span>
+            <span className="text-[10px] text-white/70 font-mono">/ 100</span>
+          </div>
+        </div>
+
+        {/* Thin accent line below tabs */}
+        <div className="mt-4 h-px w-full" style={{ background: 'linear-gradient(90deg, rgba(236,72,153,0.30) 0%, rgba(255,255,255,0.05) 60%, transparent 100%)' }} />
       </div>
 
-      {/* Tab nav */}
-      <div className="px-6 pt-5 pb-0 flex items-center gap-1 border-b border-white/5">
-        {[['session', 'Session Review'], ['cross', 'Cross-Tester'], ['sphinx', 'Sphinx AI']].map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className="px-4 py-2 text-xs tracking-widest uppercase transition-all rounded-t-lg"
-            style={{
-              color: activeTab === id ? 'white' : 'rgba(255,255,255,0.3)',
-              borderBottom: activeTab === id ? '2px solid #3b82f6' : '2px solid transparent',
-              background: activeTab === id ? 'rgba(59,130,246,0.06)' : 'transparent'
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <main className="px-6 py-6 max-w-[1400px] mx-auto">
+      <main className="relative z-10 px-6 py-6 max-w-5xl mx-auto space-y-6">
 
         {/* ── SESSION REVIEW ── */}
         {activeTab === 'session' && (
@@ -415,7 +443,7 @@ export default function Dashboard() {
 
             {/* Top row: Health score + quick stats */}
             <div className="grid grid-cols-[auto_1fr] gap-5">
-              <div className="rounded-2xl border border-white/5 p-6 flex flex-col items-center justify-center" style={{ background: 'rgba(255,255,255,0.02)', minWidth: 200 }}>
+              <div className="rounded-3xl border border-white/15 p-6 flex flex-col items-center justify-center backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.5)]" style={{ background: 'rgba(255,255,255,0.06)', minWidth: 200 }}>
                 <HealthRing score={HEALTH_SCORE} />
                 <div className="mt-4 text-center space-y-1">
                   <div className="text-[10px] text-white/30 uppercase tracking-widest">Breakdown</div>
@@ -433,7 +461,7 @@ export default function Dashboard() {
                   { label: 'Avg Heart Rate', value: '87 bpm', sub: 'Peak 108 at pit death', color: '#f97316' },
                   { label: 'Worst Segment', value: 'First Pit', sub: 'Δ 0.52 from intent', color: '#ef4444' },
                 ].map(s => (
-                  <div key={s.label} className="rounded-2xl border border-white/5 p-5" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                  <div key={s.label} className="rounded-3xl border border-white/15 p-5 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
                     <div className="text-[10px] text-white/30 uppercase tracking-widest mb-2">{s.label}</div>
                     <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>
                     <div className="text-[10px] text-white/30 mt-1">{s.sub}</div>
@@ -443,10 +471,10 @@ export default function Dashboard() {
             </div>
 
             {/* Emotion timeline */}
-            <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <div className="rounded-3xl border border-white/15 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h2 className="text-sm font-bold tracking-widest uppercase text-white/80">Emotion Timeline</h2>
+                  <h2 className="font-eb-garamond text-2xl font-bold text-white">Emotion Timeline</h2>
                   <p className="text-[10px] text-white/30 mt-0.5">All 4 Presage streams · DFA states as bands · hover for details</p>
                 </div>
               </div>
@@ -455,19 +483,19 @@ export default function Dashboard() {
 
             {/* Verdict cards */}
             <div>
-              <h2 className="text-sm font-bold tracking-widest uppercase text-white/50 mb-3">Per-State Verdicts — Intent vs. Reality</h2>
+              <h2 className="font-eb-garamond text-2xl font-bold text-white mb-4">Per-State Verdicts — Intent vs. Reality</h2>
               <div className="grid grid-cols-3 gap-3">
                 {VERDICTS.map(v => <VerdictCard key={v.id} verdict={v} />)}
               </div>
             </div>
 
             {/* Gemini insight */}
-            <div className="rounded-2xl border p-5" style={{ background: 'rgba(59,130,246,0.04)', borderColor: 'rgba(59,130,246,0.15)' }}>
+            <div className="rounded-3xl border border-[#ec4899]/25 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(236,72,153,0.1)]" style={{ background: 'rgba(236,72,153,0.07)' }}>
               <div className="flex items-center gap-2 mb-3">
-                <div className="w-5 h-5 rounded-md bg-blue-500/20 flex items-center justify-center">
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="#3b82f6"><circle cx="5" cy="5" r="4"/></svg>
+                <div className="w-5 h-5 rounded-md bg-pink-500/20 flex items-center justify-center">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="#ec4899"><circle cx="5" cy="5" r="4"/></svg>
                 </div>
-                <span className="text-xs font-bold tracking-widest uppercase text-blue-400">Gemini Insight</span>
+                <span className="text-xs font-bold tracking-widest uppercase text-[#ec4899]">Gemini Insight</span>
               </div>
               <p className="text-sm text-white/60 leading-relaxed">
                 The tester died twice at the <span className="text-white">First Pit</span> (t=38s, t=41s), producing frustration spikes of <span className="text-red-400">0.89</span> and <span className="text-red-400">0.91</span> respectively — significantly above the intended "tense but fair" range of 0.50–0.80. 
@@ -485,15 +513,15 @@ export default function Dashboard() {
         {activeTab === 'cross' && (
           <div className="space-y-5">
 
-            <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'rgba(255,255,255,0.02)' }}>
-              <h2 className="text-sm font-bold tracking-widest uppercase text-white/80 mb-1">Frustration Overlay — All Testers</h2>
+            <div className="rounded-3xl border border-white/15 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
+              <h2 className="font-eb-garamond text-2xl font-bold text-white mb-1">Frustration Overlay — All Testers</h2>
               <p className="text-[10px] text-white/30 mb-4">5 sessions · convergence at First Pit indicates systematic design failure</p>
               <CrossTesterChart data={CROSS_TESTER} />
             </div>
 
             {/* Pain points table */}
-            <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'rgba(255,255,255,0.02)' }}>
-              <h2 className="text-sm font-bold tracking-widest uppercase text-white/80 mb-4">Pain Point Rankings</h2>
+            <div className="rounded-3xl border border-white/15 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
+              <h2 className="font-eb-garamond text-2xl font-bold text-white mb-4">Pain Point Rankings</h2>
               <div className="space-y-2">
                 {painPoints.map((v, i) => (
                   <div key={v.id} className="flex items-center gap-4 py-2.5 px-3 rounded-xl hover:bg-white/3 transition-colors">
@@ -513,8 +541,8 @@ export default function Dashboard() {
             </div>
 
             {/* Per-state verdict breakdown table */}
-            <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'rgba(255,255,255,0.02)' }}>
-              <h2 className="text-sm font-bold tracking-widest uppercase text-white/80 mb-4">Cross-Session Verdict Summary</h2>
+            <div className="rounded-3xl border border-white/15 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
+              <h2 className="font-eb-garamond text-2xl font-bold text-white mb-4">Cross-Session Verdict Summary</h2>
               <div className="grid grid-cols-3 gap-3">
                 {VERDICTS.map(v => (
                   <div key={v.id} className="flex items-center justify-between py-2 px-3 rounded-xl border border-white/5">
@@ -533,11 +561,11 @@ export default function Dashboard() {
         {/* ── SPHINX ── */}
         {activeTab === 'sphinx' && (
           <div className="space-y-5">
-            <div className="rounded-2xl border p-5" style={{ background: 'rgba(168,85,247,0.04)', borderColor: 'rgba(168,85,247,0.15)' }}>
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-5 h-5 rounded-md bg-purple-500/20 flex items-center justify-center text-purple-400 text-xs font-bold">S</div>
-                <span className="text-xs font-bold tracking-widest uppercase text-purple-400">Sphinx AI Copilot</span>
-                <span className="text-[10px] text-white/20 ml-2">Natural language queries over Snowflake + VectorAI</span>
+            <div className="rounded-3xl border border-purple-400/20 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(168,85,247,0.08)]" style={{ background: 'rgba(168,85,247,0.07)' }}>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_6px_rgba(168,85,247,0.8)]" />
+                <span className="text-xs font-bold tracking-widest uppercase text-purple-300">Sphinx AI</span>
+                <span className="text-[10px] text-white/20 ml-1">Natural language · Snowflake + VectorAI</span>
               </div>
 
               <div className="relative">
@@ -565,7 +593,7 @@ export default function Dashboard() {
             </div>
 
             {/* Example output */}
-            <div className="rounded-2xl border border-white/5 p-5" style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <div className="rounded-3xl border border-white/15 p-6 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.4)]" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <div className="text-[10px] text-white/20 font-mono mb-3 uppercase tracking-widest">Example Output — Frustration Heatmap by State</div>
               <div className="grid grid-cols-6 gap-2">
                 {VERDICTS.map(v => {

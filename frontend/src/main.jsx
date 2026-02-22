@@ -7,7 +7,6 @@ import Dashboard from './components/Dashboard.jsx'
 import ProjectSetup from './pages/ProjectSetup.jsx'
 import SessionManagement from './pages/SessionManagement.jsx'
 import SessionReview from './pages/SessionReview.jsx'
-import CrossTesterAggregate from './pages/CrossTesterAggregate.jsx'
 import SphinxExplorer from './pages/SphinxExplorer.jsx'
 import './index.css'
 
@@ -21,7 +20,6 @@ createRoot(document.getElementById('root')).render(
           <Route path="setup" element={<ProjectSetup />} />
           <Route path="sessions" element={<SessionManagement />} />
           <Route path="review" element={<SessionReview />} />
-          <Route path="aggregate" element={<CrossTesterAggregate />} />
           <Route path="sphinx" element={<SphinxExplorer />} />
         </Route>
       </Routes>
